@@ -201,6 +201,24 @@ const CLUBS = [
   // França
   club("fr-nice","OGC Nice","franca","Ligue 1","pequeno",50,42,50,55,40,45,60,"Meio de tabela superior","Defensivo","#CC0000","#000000"),
   club("fr-strasbourg","Strasbourg","franca","Ligue 1","pequeno",42,40,44,45,32,35,65,"Meio de tabela","Motivador","#0055A4","#FFFFFF"),
+
+  // ============ URUGUAI — só para a Copa Continental ============
+  club("uy-penarol","Peñarol","uruguai","Primera División Uruguaia","medio",68,72,60,58,45,85,60,"Título nacional","Tático","#FFD400","#000000"),
+  club("uy-nacional","Nacional","uruguai","Primera División Uruguaia","medio",67,70,59,58,44,85,58,"Título nacional","Ofensivo","#FFFFFF","#0033A0"),
+  club("uy-defensor","Defensor Sporting","uruguai","Primera División Uruguaia","pequeno",42,38,42,40,28,45,68,"Meio de tabela superior","Motivador","#7A1FA2","#FFFFFF"),
+
+  // ============ CHILE — só para a Copa Continental ============
+  club("cl-colo-colo","Colo-Colo","chile","Primera División Chilena","medio",64,75,58,56,42,82,55,"Título nacional","Ofensivo","#FFFFFF","#000000"),
+  club("cl-universidad-de-chile","Universidad de Chile","chile","Primera División Chilena","medio",60,68,56,54,40,75,58,"Título nacional","Tático","#0033A0","#FFFFFF"),
+  club("cl-universidad-catolica","Universidad Católica","chile","Primera División Chilena","pequeno",50,48,50,52,36,60,60,"Classificação continental","Conservador","#003DA5","#FFFFFF"),
+
+  // ============ URUGUAI E CHILE — só para a Libertadores (não são países jogáveis ainda) ============
+  club("uy-penarol","Peñarol","uruguai","Primera División Uruguay","grande",70,80,66,62,50,88,45,"Título nacional","Ofensivo","#FFD100","#000000"),
+  club("uy-nacional","Nacional","uruguai","Primera División Uruguay","grande",68,78,64,60,48,86,45,"Título nacional","Tático","#FFFFFF","#0033A0"),
+  club("uy-defensor","Defensor Sporting","uruguai","Primera División Uruguay","medio",48,45,48,45,32,55,60,"Classificação continental","Motivador","#8B1874","#FFFFFF"),
+  club("cl-colo-colo","Colo-Colo","chile","Primera División Chile","grande",66,82,62,58,45,85,40,"Título nacional","Ofensivo","#000000","#FFFFFF"),
+  club("cl-u-chile","Universidad de Chile","chile","Primera División Chile","grande",62,75,60,56,42,80,42,"Título nacional","Tático","#0033A0","#FFFFFF"),
+  club("cl-u-catolica","Universidad Católica","chile","Primera División Chile","medio",56,60,55,55,40,68,48,"Classificação continental","Conservador","#001489","#FFFFFF"),
 ];
 function clubsByCountry(countryId){ return CLUBS.filter(c=>c.countryId===countryId); }
 function clubsByLeague(league,excludeId){ return CLUBS.filter(c=>c.league===league && c.id!==excludeId); }
@@ -220,7 +238,7 @@ const PERSONALITIES = [
   { name:"Profissional", description:"Equilíbrio entre disciplina e vida pessoal saudável.", advantages:["Boa evolução constante"], risks:["Sem riscos relevantes"] },
 ];
 
-const NATIONALITIES = ["Brasil","Argentina","Portugal","Espanha","Inglaterra","Alemanha","Itália","França","Uruguai","Holanda"];
+const NATIONALITIES = ["Brasil","Argentina","Portugal","Espanha","Inglaterra","Alemanha","Itália","França","Uruguai","Holanda","Chile"];
 const NAME_POOLS = {
   Brasil:{ first:["Lucas","Gabriel","Matheus","Rafael","Kauê","Bruno","Thiago","Vinícius","Wesley","Iago","Caio","Diego","Renan","Everton","Marlon"], last:["Silva","Souza","Oliveira","Costa","Pereira","Almeida","Ferreira","Barbosa","Ribeiro","Carvalho","Gomes","Martins","Rocha","Dias","Nascimento"] },
   Argentina:{ first:["Lautaro","Nahuel","Franco","Ezequiel","Facundo","Joaquín","Tomás","Bruno","Agustín","Ignacio","Ramiro","Federico"], last:["González","Rodríguez","Fernández","Díaz","Romero","Sosa","Acosta","Molina","Torres","Aguirre","Cabrera","Medina"] },
@@ -231,12 +249,13 @@ const NAME_POOLS = {
   Itália:{ first:["Matteo","Lorenzo","Andrea","Federico","Davide","Riccardo","Gianluca","Simone","Alessio","Marco"], last:["Rossi","Russo","Ferrari","Esposito","Bianchi","Romano","Colombo","Ricci","Marino","Greco"] },
   França:{ first:["Lucas","Hugo","Léo","Nathan","Enzo","Louis","Mathis","Gabriel","Théo","Rayan"], last:["Martin","Bernard","Dubois","Thomas","Robert","Petit","Durand","Leroy","Moreau","Simon"] },
   Uruguai:{ first:["Nicolás","Federico","Agustín","Sebastián","Bruno","Emiliano"], last:["Rodríguez","Fernández","Pereira","Silva","Suárez","Vidal"] },
+  Chile:{ first:["Matías","Vicente","Cristóbal","Benjamín","Diego","Arturo"], last:["Muñoz","Contreras","Fuentes","Vidal","Rojas","Silva"] },
   Holanda:{ first:["Daan","Sem","Milan","Luuk","Bram","Thijs"], last:["De Jong","Jansen","De Vries","Bakker","Visser","Smit"] },
 };
 const COACH_FIRST = {
   Brasil:["Adilson","Vanderlei","Reinaldo","Marcelo","Osvaldo"], Argentina:["Ricardo","Hernán","Gustavo","Marcelo"], Portugal:["Jorge","António","Manuel","Paulo"],
   Espanha:["Andrés","Rafael","Ernesto"], Inglaterra:["Gary","Steven","Martin"], Alemanha:["Klaus","Jürgen","Stefan"], Itália:["Fabio","Roberto","Antonio"],
-  França:["Didier","Laurent","Michel"], Uruguai:["Óscar","Diego"], Holanda:["Dennis","Frank"],
+  França:["Didier","Laurent","Michel"], Uruguai:["Óscar","Diego"], Holanda:["Dennis","Frank"], Chile:["Manuel","Jorge"],
 };
 function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 function rand(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
@@ -244,7 +263,7 @@ function randomNationality(weightedTowards){ if(weightedTowards && Math.random()
 function generateFictionalName(nat){ const pool = NAME_POOLS[nat]||NAME_POOLS.Brasil; return { first:pick(pool.first), last:pick(pool.last) }; }
 function generateCoachName(nat){ const pool = NAME_POOLS[nat]||NAME_POOLS.Brasil; const firstPool = COACH_FIRST[nat]||pool.first; return { first:pick(firstPool), last:pick(pool.last) }; }
 
-const COUNTRY_NATIONALITY = { brasil:"Brasil", argentina:"Argentina", portugal:"Portugal", espanha:"Espanha", inglaterra:"Inglaterra", alemanha:"Alemanha", italia:"Itália", franca:"França" };
+const COUNTRY_NATIONALITY = { brasil:"Brasil", argentina:"Argentina", portugal:"Portugal", espanha:"Espanha", inglaterra:"Inglaterra", alemanha:"Alemanha", italia:"Itália", franca:"França", uruguai:"Uruguai", chile:"Chile" };
 
 // ============================================================
 // OVERALL — pesos por posição
@@ -454,7 +473,7 @@ function sortedStandings(calendar){
 // COPAS — Copa Nacional (mistura divisões, como a Copa do Brasil de verdade)
 // e Copa Continental (Libertadores para América do Sul, estilo UEFA para a Europa)
 // ============================================================
-const SOUTH_AMERICA = ["brasil","argentina"];
+const SOUTH_AMERICA = ["brasil","argentina","uruguai","chile"];
 const EUROPE = ["portugal","espanha","inglaterra","alemanha","italia","franca"];
 function continentPool(countryId){
   if(SOUTH_AMERICA.includes(countryId)) return SOUTH_AMERICA;
@@ -599,7 +618,7 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
     const built = buildSeasonCups(finalPlayer.club, leagueOutcome.qualifiedForContinental);
     const totalLeagueWeeks = nextCalendar.rounds.length*2;
     nextCup = scheduleCupWeeks(built.cup, totalLeagueWeeks, 0);
-    nextContinentalCup = built.continentalCup ? scheduleCupWeeks(built.continentalCup, totalLeagueWeeks, 4) : null;
+    nextContinentalCup = built.continentalCup ? scheduleContinentalWeeks(built.continentalCup, totalLeagueWeeks, 4) : null;
   }
 
   const newCareer = { ...career, player:finalPlayer, weekIndex:0,
@@ -610,6 +629,80 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
   return { newCareer, screen: evo.retirementSuggested ? "retirement" : "season-summary", transferOffers };
 }
 
+// ============================================================
+// LIBERTADORES / COPA CONTINENTAL — fase de grupos + final
+// (versão reduzida do formato real: grupo de 4 times, os 2 melhores decidem o título)
+// ============================================================
+function buildContinentalCup(name, poolTeams, playerClub){
+  const others = poolTeams.filter(t=>t.id!==playerClub.id);
+  const shuffled = [...others].sort(()=>Math.random()-0.5).slice(0,3);
+  const group = [playerClub, ...shuffled].sort(()=>Math.random()-0.5);
+  const groupStandings = {};
+  group.forEach(t=>{ groupStandings[t.id] = { club:t, j:0,v:0,e:0,d:0,gp:0,gc:0,pts:0 }; });
+  const groupRounds = roundRobin(group);
+  return { name, phase:"groups", group, groupRounds, groupStandings, currentGroupRound:0,
+    playerClubId:playerClub.id, finalTie:null, eliminated:false, champion:null, scheduledWeeks:[] };
+}
+function findPlayerContinentalTie(cup){
+  if(!cup || cup.champion || cup.eliminated) return null;
+  if(cup.phase==="groups"){
+    const round = cup.groupRounds[cup.currentGroupRound];
+    if(!round) return null;
+    return round.find(m=>m.home.id===cup.playerClubId||m.away.id===cup.playerClubId) || null;
+  }
+  if(cup.phase==="final" && cup.finalTie && !cup.finalTie.resolved) return cup.finalTie;
+  return null;
+}
+function advanceContinentalCup(cup, playerWon, playerClub, opponentClub, homeGoals, awayGoals){
+  if(cup.phase==="groups"){
+    const round = cup.groupRounds[cup.currentGroupRound].map(m=>{
+      const isPlayerMatch = m.home.id===cup.playerClubId || m.away.id===cup.playerClubId;
+      if(isPlayerMatch){
+        applyResultToStandings(cup.groupStandings, m.home, m.away, homeGoals, awayGoals);
+      } else {
+        const res = quickSimResult(m.home, m.away);
+        applyResultToStandings(cup.groupStandings, m.home, m.away, res.homeGoals, res.awayGoals);
+      }
+      return { ...m, resolved:true };
+    });
+    const newGroupRounds = [...cup.groupRounds]; newGroupRounds[cup.currentGroupRound] = round;
+    const nextRound = cup.currentGroupRound+1;
+    if(nextRound < cup.groupRounds.length){
+      return { ...cup, groupRounds:newGroupRounds, currentGroupRound:nextRound };
+    }
+    const standingsSorted = cup.group.map(t=>cup.groupStandings[t.id]).sort((a,b)=>(b.pts-a.pts)||((b.gp-b.gc)-(a.gp-a.gc))||(b.gp-a.gp));
+    const top2 = standingsSorted.slice(0,2).map(r=>r.club);
+    const playerQualified = top2.some(t=>t.id===cup.playerClubId);
+    if(!playerQualified){
+      return { ...cup, groupRounds:newGroupRounds, phase:"done", eliminated:true };
+    }
+    return { ...cup, groupRounds:newGroupRounds, phase:"final", finalTie:{ home:top2[0], away:top2[1], resolved:false, winner:null } };
+  }
+  if(cup.phase==="final"){
+    const winner = playerWon ? playerClub : opponentClub;
+    // "champion" só fica marcado quando é de fato o clube do jogador — perder a final conta como eliminado
+    // para fins de status (o texto da notícia já diferencia "vice-campeão" de "eliminado nos grupos").
+    return { ...cup, phase:"done", champion: playerWon ? winner : null, eliminated: !playerWon, finalTie:{...cup.finalTie, resolved:true, winner} };
+  }
+  return cup;
+}
+function scheduleContinentalWeeks(cup, totalLeagueWeeks, offset){
+  const eventsCount = cup.groupRounds.length + 1;
+  const weeks = [];
+  for(let i=1;i<=eventsCount;i++){
+    let w = Math.round((totalLeagueWeeks*i)/(eventsCount+1)) + (offset||0);
+    if(w%2!==0) w+=1;
+    if(w<2) w=2;
+    weeks.push(w);
+  }
+  return { ...cup, scheduledWeeks:weeks };
+}
+function continentalRoundLabel(cup){
+  if(cup.phase==="groups") return `Fase de grupos — rodada ${cup.currentGroupRound+1}/${cup.groupRounds.length}`;
+  if(cup.phase==="final") return "Final";
+  return "";
+}
+
 function buildSeasonCups(playerClub, standingsQualified){
   const domesticPool = clubsByCountry(playerClub.countryId);
   let cup = buildCup(playerClub.countryId==="brasil"?"Copa do Brasil":"Copa Nacional", domesticPool, playerClub, 8);
@@ -618,7 +711,7 @@ function buildSeasonCups(playerClub, standingsQualified){
   if(eligible){
     const continentPoolTeams = continentPool(playerClub.countryId).flatMap(cid=>clubsByCountry(cid)).filter(c=>c.tier!=="pequeno");
     const contName = SOUTH_AMERICA.includes(playerClub.countryId) ? "Libertadores" : "Champions Continental";
-    continentalCup = buildCup(contName, continentPoolTeams, playerClub, 8);
+    continentalCup = buildContinentalCup(contName, continentPoolTeams, playerClub);
   }
   return { cup, continentalCup };
 }
@@ -1373,7 +1466,7 @@ function createNewCareer(form, clubObj){
   const totalLeagueWeeks = calendar.rounds.length*2;
   let { cup, continentalCup } = buildSeasonCups(clubObj);
   cup = scheduleCupWeeks(cup, totalLeagueWeeks, 0);
-  if(continentalCup) continentalCup = scheduleCupWeeks(continentalCup, totalLeagueWeeks, 4);
+  if(continentalCup) continentalCup = scheduleContinentalWeeks(continentalCup, totalLeagueWeeks, 4);
 
   const player = {
     id:`player-${Date.now()}`, firstName:form.firstName, lastName:form.lastName, nickname:form.nickname,
@@ -1941,6 +2034,8 @@ function DashboardPage(){
   const [showAllNews, setShowAllNews] = useState(false);
   const [showStandings, setShowStandings] = useState(false);
   const [coachChat, setCoachChat] = useState(null);
+  const [requestedOffers, setRequestedOffers] = useState(null);
+  const [requestingTransfer, setRequestingTransfer] = useState(false);
 
   useEffect(()=>{
     if(!career) return;
@@ -1966,7 +2061,7 @@ function DashboardPage(){
   const domesticCupTie = (!isMatchWeek && career.cup && !career.cup.eliminated && !career.cup.champion && career.cup.scheduledWeeks.includes(career.weekIndex))
     ? findPlayerCupTie(career.cup) : null;
   const continentalCupTie = (!domesticCupTie && !isMatchWeek && career.continentalCup && !career.continentalCup.eliminated && !career.continentalCup.champion && career.continentalCup.scheduledWeeks.includes(career.weekIndex))
-    ? findPlayerCupTie(career.continentalCup) : null;
+    ? findPlayerContinentalTie(career.continentalCup) : null;
   const cupTie = domesticCupTie || continentalCupTie;
   const cupKey = domesticCupTie ? "cup" : "continentalCup";
   const activeCup = domesticCupTie ? career.cup : career.continentalCup;
@@ -1987,9 +2082,10 @@ function DashboardPage(){
 
   function goToCupMatch(){
     const tie = cupTie;
-    const roundName = cupRoundName(activeCup.rounds[activeCup.currentRoundIdx].length*2);
+    const isKnockout = cupKey==="cup" || activeCup.phase==="final";
+    const roundName = cupKey==="cup" ? cupRoundName(activeCup.rounds[activeCup.currentRoundIdx].length*2) : continentalRoundLabel(activeCup);
     setPendingMatch({ opponentClub: tie.home.id===player.club.id ? tie.away : tie.home, isHome: tie.home.id===player.club.id,
-      competition: `${activeCup.name} — ${roundName}`, isCup:true, cupKey });
+      competition: `${activeCup.name} — ${roundName}`, isCup:true, cupKey, isKnockout });
     setScreen("match");
   }
 
@@ -2037,12 +2133,20 @@ function DashboardPage(){
     let updatedCup = career.cup, updatedContinentalCup = career.continentalCup;
     if(cupTie){
       const res2 = quickSimResult(cupTie.home, cupTie.away);
-      const isDraw = res2.homeGoals===res2.awayGoals;
-      const wonNormally = cupTie.home.id===player.club.id ? res2.homeGoals>res2.awayGoals : res2.awayGoals>res2.homeGoals;
-      const playerWon = wonNormally || (isDraw && Math.random()<0.5);
       const opponentClub = cupTie.home.id===player.club.id ? cupTie.away : cupTie.home;
-      const advanced = advanceCup(activeCup, playerWon, player.club, opponentClub);
-      if(cupKey==="cup") updatedCup = advanced; else updatedContinentalCup = advanced;
+      if(cupKey==="cup"){
+        const isDraw = res2.homeGoals===res2.awayGoals;
+        const wonNormally = cupTie.home.id===player.club.id ? res2.homeGoals>res2.awayGoals : res2.awayGoals>res2.homeGoals;
+        const playerWon = wonNormally || (isDraw && Math.random()<0.5);
+        updatedCup = advanceCup(activeCup, playerWon, player.club, opponentClub);
+      } else if(activeCup.phase==="groups"){
+        updatedContinentalCup = advanceContinentalCup(activeCup, false, player.club, opponentClub, res2.homeGoals, res2.awayGoals);
+      } else {
+        const isDraw = res2.homeGoals===res2.awayGoals;
+        const wonNormally = cupTie.home.id===player.club.id ? res2.homeGoals>res2.awayGoals : res2.awayGoals>res2.homeGoals;
+        const playerWon = wonNormally || (isDraw && Math.random()<0.5);
+        updatedContinentalCup = advanceContinentalCup(activeCup, playerWon, player.club, opponentClub);
+      }
     }
     return { matchesPlayedDelta, calendar:{...calendar}, cup:updatedCup, continentalCup:updatedContinentalCup };
   }
@@ -2074,6 +2178,53 @@ function DashboardPage(){
 
   function handleExport(){ exportCareer(career); }
 
+  function requestTransfer(){
+    setRequestingTransfer(true);
+    // Como foi o próprio jogador que pediu, ignora a "chance" aleatória normal — só olha se é elegível.
+    const eligible = player.overall >= player.club.reputation - 25 && (player.reputation.national > 15 || player.overall >= 68);
+    if(!eligible){
+      setRequestedOffers([]);
+      return;
+    }
+    const candidates = CLUBS.filter(c=>c.id!==player.club.id && Math.abs(c.reputation - Math.max(player.club.reputation, player.overall)) < 30);
+    const count = rand(1,3);
+    const chosen = [...candidates].sort(()=>Math.random()-0.5).slice(0,count);
+    const offers = chosen.map(c=>({
+      id:`req-${c.id}-${Date.now()}-${Math.random()}`, club:c,
+      salaryPerWeek: Math.round((player.overall*120 + c.reputation*40) * (c.tier==="grande"?1.6:c.tier==="medio"?1.1:0.8)),
+      durationSeasons: rand(2,4),
+      squadRole: c.squadQuality > player.overall+8 ? "Peça de rotação" : c.squadQuality < player.overall-5 ? "Titular imediato" : "Disputa de posição",
+      startingChance: Math.max(15, Math.min(95, 100 - (c.squadQuality - player.overall))),
+    }));
+    setRequestedOffers(offers);
+  }
+
+  function acceptMidSeasonTransfer(offer){
+    const newClub = offer.club;
+    const newCoach = generateCoach(newClub);
+    const newSquad = generateSquad(newClub);
+    const newCalendar = buildCalendar(newClub);
+    // Fecha o pedaço da temporada no clube antigo como um registro parcial, antes de trocar.
+    const partialRecord = { season:career.currentSeason, clubId:player.club.id, matches:seasonProgress.matchesPlayed, goals:seasonProgress.goals,
+      assists:seasonProgress.assists, averageRating: seasonProgress.matchesPlayed>0 ? Math.round((seasonProgress.ratingSum/seasonProgress.matchesPlayed)*10)/10 : 0,
+      yellowCards:seasonProgress.yellowCards, redCards:seasonProgress.redCards, injuries:seasonProgress.injuriesThisSeason, titles:[],
+      overallStart:seasonProgress.overallAtStart, overallEnd:player.overall, marketValue:Math.round(player.overall*40000) };
+    const updatedHistory = player.clubHistory.map((h,i)=> i===player.clubHistory.length-1 ? {...h, toSeason:career.currentSeason} : h);
+    updatedHistory.push({ clubId:newClub.id, clubName:newClub.name, fromSeason:career.currentSeason });
+    const news = newsFromTransfer(player, player.club, newClub, career.currentSeason);
+    let updatedPlayer = { ...player, club:newClub, clubHistory:updatedHistory, squad:newSquad, coachTrust:50,
+      reputation:{...player.reputation, club:35}, seasons:[...player.seasons, partialRecord], newsLog:[news, ...player.newsLog].slice(0,40) };
+    updatedPlayer = addMilestone(updatedPlayer, `Pediu transferência e se acertou com o ${newClub.name} no meio da temporada.`, career.currentSeason, "transferência");
+    const builtCups = buildSeasonCups(newClub);
+    const totalLeagueWeeks = newCalendar.rounds.length*2;
+    const newCup = scheduleCupWeeks(builtCups.cup, totalLeagueWeeks, 0);
+    const newContinentalCup = builtCups.continentalCup ? scheduleContinentalWeeks(builtCups.continentalCup, totalLeagueWeeks, 4) : null;
+    persist(c=>({ ...c, player:updatedPlayer, currentCoach:newCoach, calendar:newCalendar, cup:newCup, continentalCup:newContinentalCup, weekIndex:0,
+      seasonProgress:{ matchesPlayed:0, matchesTotal:newCalendar.matchesTotal, goals:0, assists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:player.overall } }));
+    setRequestedOffers(null);
+    setRequestingTransfer(false);
+  }
+
   const attrs = player.attributes;
   const attrEntries = attrTab==="Físicos" ? Object.entries(attrs.physical) : attrTab==="Técnicos" ? Object.entries(attrs.technical) : Object.entries(attrs.mental);
 
@@ -2095,6 +2246,7 @@ function DashboardPage(){
             <MiniStat label="Moral" value={player.morale} />
             <MiniStat label="Energia" value={player.energy} />
             <MiniStat label="Confiança" value={player.coachTrust} />
+            <button className="btn-secondary !px-4 !py-2 text-xs" onClick={()=>{ setRequestedOffers(null); requestTransfer(); }}>Pedir transferência</button>
             <button className="btn-secondary !px-4 !py-2 text-xs" onClick={handleExport}>Exportar carreira</button>
           </div>
         </div>
@@ -2102,6 +2254,21 @@ function DashboardPage(){
 
       <main className="max-w-6xl mx-auto px-4 pt-6 grid lg:grid-cols-[1fr_340px] gap-6">
         <div className="space-y-6">
+          {requestedOffers && (
+            <div className="card p-5 border-l-2 border-touchline/60">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-display font-semibold text-steel-100">Mercado — clubes interessados</h3>
+                <button className="text-xs text-steel-400 hover:underline" onClick={()=>setRequestedOffers(null)}>Fechar</button>
+              </div>
+              {requestedOffers.length===0 ? (
+                <p className="text-sm text-steel-400">Nenhum clube demonstrou interesse por enquanto. Melhore sua reputação e tente de novo mais adiante.</p>
+              ) : (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {requestedOffers.map(o=> <TransferOfferCard key={o.id} offer={o} onAccept={acceptMidSeasonTransfer} onReject={()=>setRequestedOffers(prev=>prev.filter(x=>x.id!==o.id))} />)}
+                </div>
+              )}
+            </div>
+          )}
           <div className="card p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -2155,11 +2322,11 @@ function DashboardPage(){
             </div>
           ) : cupTie ? (
             <div className="card p-6 bg-stadium-glow">
-              <span className="eyebrow">{activeCup.name} · {cupRoundName(activeCup.rounds[activeCup.currentRoundIdx].length*2)}</span>
+              <span className="eyebrow">{activeCup.name} · {cupKey==="cup" ? cupRoundName(activeCup.rounds[activeCup.currentRoundIdx].length*2) : continentalRoundLabel(activeCup)}</span>
               <h2 className="font-display text-2xl font-semibold text-steel-100 mt-1 mb-1">
                 {cupTie.home.id===player.club.id ? `${player.club.name} x ${cupTie.away.name}` : `${cupTie.home.name} x ${player.club.name}`}
               </h2>
-              <p className="text-sm text-steel-400 mb-5">{cupTie.home.id===player.club.id ? "Jogo em casa" : "Jogo fora de casa"} · mata-mata, quem perder está fora.</p>
+              <p className="text-sm text-steel-400 mb-5">{cupTie.home.id===player.club.id ? "Jogo em casa" : "Jogo fora de casa"} · {cupKey==="cup"||activeCup.phase==="final" ? "mata-mata, quem perder está fora." : "fase de grupos."}</p>
               <button className="btn-primary" onClick={goToCupMatch}>Ir para o jogo</button>
             </div>
           ) : isMatchWeek && fixture ? (
@@ -2216,7 +2383,7 @@ function DashboardPage(){
                   <div className="flex items-center justify-between">
                     <span className="text-steel-300">{career.continentalCup.name}</span>
                     <span className={career.continentalCup.champion?"text-crest-gold font-semibold":career.continentalCup.eliminated?"text-state-down":"text-steel-400"}>
-                      {career.continentalCup.champion ? "🏆 Campeão" : career.continentalCup.eliminated ? "Eliminado" : cupRoundName(career.continentalCup.rounds[career.continentalCup.currentRoundIdx].length*2)}
+                      {career.continentalCup.champion ? "🏆 Campeão" : career.continentalCup.eliminated ? "Fora da competição" : continentalRoundLabel(career.continentalCup)}
                     </span>
                   </div>
                 )}
@@ -2306,6 +2473,7 @@ function MatchPage(){
   const [otherGames, setOtherGames] = useState(()=> buildLiveOtherGames(career.calendar, currentRoundIdx, player.club.id));
   const [pendingResult, setPendingResult] = useState(null);
   const [pendingSetPiece, setPendingSetPiece] = useState(null);
+  const [shootout, setShootout] = useState(null);
   const [pressAnswered, setPressAnswered] = useState(false);
   const [showTopScorers, setShowTopScorers] = useState(false);
   const [reactionEffects, setReactionEffects] = useState([]);
@@ -2375,7 +2543,12 @@ function MatchPage(){
     if(beat.type==="decision"){
       setCurrentOutcome(null);
       setCrowdLine(null);
-      setSubPhase("choose");
+      if(beat.moment._template.isPenalty){
+        setPendingSetPiece({ kind:"penalty" });
+        setSubPhase("corner-choice");
+      } else {
+        setSubPhase("choose");
+      }
       return;
     }
   }
@@ -2398,8 +2571,8 @@ function MatchPage(){
   function choose(choiceId){
     const beat = timeline[beatIndex];
     const template = beat.moment._template;
-    if(template.isPenalty || (template.freeKickChoiceId && choiceId===template.freeKickChoiceId)){
-      setPendingSetPiece({ kind: template.isPenalty ? "penalty" : "freeKick" });
+    if(template.freeKickChoiceId && choiceId===template.freeKickChoiceId){
+      setPendingSetPiece({ kind:"freeKick" });
       setSubPhase("corner-choice");
       return;
     }
@@ -2434,6 +2607,37 @@ function MatchPage(){
       setCrowdLine(crowdReaction(outcome.success, true));
       setSubPhase("resolved");
     }, 900);
+  }
+
+  function afterShootoutKick(homeKicks, awayKicks){
+    if(homeKicks.length===awayKicks.length && homeKicks.length>=5){
+      const hs = homeKicks.filter(Boolean).length;
+      const as = awayKicks.filter(Boolean).length;
+      if(hs!==as) return { done:true, winnerSide: hs>as?"home":"away" };
+    }
+    return { done:false, winnerSide:null };
+  }
+  function applyShootoutResult(scored){
+    setShootout(prev=>{
+      const isHomeTurn = prev.turn==="home";
+      const homeKicks = isHomeTurn ? [...prev.homeKicks, scored] : prev.homeKicks;
+      const awayKicks = !isHomeTurn ? [...prev.awayKicks, scored] : prev.awayKicks;
+      const { done, winnerSide } = afterShootoutKick(homeKicks, awayKicks);
+      const nextTurn = homeKicks.length===awayKicks.length ? "home" : "away";
+      return { homeKicks, awayKicks, turn: done?prev.turn:nextTurn, done, winnerSide, lastScored:scored, lastSide:prev.turn };
+    });
+  }
+  function startShootout(){
+    setShootout({ homeKicks:[], awayKicks:[], turn:"home", done:false, winnerSide:null, lastScored:null, lastSide:null });
+    setSubPhase("penalties");
+  }
+  function takePlayerShootoutKick(corner){
+    const outcome = resolveSetPiece(player, "penalty", corner, opponentQuality);
+    applyShootoutResult(outcome.goal);
+  }
+  function takeOpponentShootoutKick(){
+    const scored = Math.random() < Math.min(0.92, 0.55 + opponentQuality/220);
+    applyShootoutResult(scored);
   }
 
   function goToPress(){
@@ -2522,31 +2726,82 @@ function MatchPage(){
 
     // Partida de copa: mata-mata à parte, não mexe na tabela nem no contador de jogos da liga.
     if(pendingMatch.isCup){
-      const cup = career[pendingMatch.cupKey];
-      const isDraw = result.homeGoals===result.awayGoals;
-      const wonNormally = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
-      const finalPlayerWon = wonNormally || (isDraw && Math.random()<0.5);
-      const updatedCup = advanceCup(cup, finalPlayerWon, player.club, pendingMatch.opponentClub);
+      if(pendingMatch.cupKey==="cup"){
+        const cup = career.cup;
+        const isDraw = result.homeGoals===result.awayGoals;
+        const wonNormally = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
+        const wonOnPens = isDraw && shootout && shootout.winnerSide && (shootout.winnerSide==="home")===pendingMatch.isHome;
+        const finalPlayerWon = wonNormally || wonOnPens || (isDraw && !shootout && Math.random()<0.5);
+        const updatedCup = advanceCup(cup, finalPlayerWon, player.club, pendingMatch.opponentClub);
 
-      let cupNews;
-      if(updatedCup.champion && updatedCup.champion.id===player.club.id){
-        cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
-          headline:`CAMPEÃO! ${player.club.name} conquista a ${cup.name} com ${player.firstName} em campo`,
-          summary:`Título decidido${isDraw?" nos pênaltis":""} contra o ${result.opponentClub.name}.`, date:`Temporada ${career.currentSeason}`, impact:30, season:career.currentSeason };
-        updatedPlayer = addMilestone(updatedPlayer, `Campeão da ${cup.name}!`, career.currentSeason, "título");
-        updatedPlayer = { ...updatedPlayer, achievements:[...updatedPlayer.achievements, { id:`cup-${cup.name}-${career.currentSeason}`, title:`Campeão da ${cup.name}`, description:`Título conquistado na temporada ${career.currentSeason}.`, season:career.currentSeason }] };
-      } else if(finalPlayerWon){
-        cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
-          headline:`${player.club.name} avança na ${cup.name}`,
-          summary:`Vitória${isDraw?" nos pênaltis":""} sobre o ${result.opponentClub.name} garante vaga na próxima fase.`, date:`Temporada ${career.currentSeason}`, impact:10, season:career.currentSeason };
+        let cupNews;
+        if(updatedCup.champion && updatedCup.champion.id===player.club.id){
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+            headline:`CAMPEÃO! ${player.club.name} conquista a ${cup.name} com ${player.firstName} em campo`,
+            summary:`Título decidido${isDraw?" nos pênaltis":""} contra o ${result.opponentClub.name}.`, date:`Temporada ${career.currentSeason}`, impact:30, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Campeão da ${cup.name}!`, career.currentSeason, "título");
+          updatedPlayer = { ...updatedPlayer, achievements:[...updatedPlayer.achievements, { id:`cup-${cup.name}-${career.currentSeason}`, title:`Campeão da ${cup.name}`, description:`Título conquistado na temporada ${career.currentSeason}.`, season:career.currentSeason }] };
+        } else if(finalPlayerWon){
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
+            headline:`${player.club.name} avança na ${cup.name}`,
+            summary:`Vitória${isDraw?" nos pênaltis":""} sobre o ${result.opponentClub.name} garante vaga na próxima fase.`, date:`Temporada ${career.currentSeason}`, impact:10, season:career.currentSeason };
+        } else {
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+            headline:`${player.club.name} é eliminado da ${cup.name}`,
+            summary:`Derrota${isDraw?" nos pênaltis":""} para o ${result.opponentClub.name} encerra o sonho do título.`, date:`Temporada ${career.currentSeason}`, impact:-10, season:career.currentSeason };
+        }
+        updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
+        setLastMatchResult(result);
+        setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, cup:updatedCup });
+        setScreen("dashboard");
+        return;
+      }
+
+      // Copa continental: fase de grupos (empates valem ponto, sem pênaltis) + final (mata-mata puro).
+      const cup = career.continentalCup;
+      let updatedCup, cupNews;
+      if(cup.phase==="groups"){
+        updatedCup = advanceContinentalCup(cup, false, player.club, pendingMatch.opponentClub, result.homeGoals, result.awayGoals);
+        const wonMatch = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
+        const drewMatch = result.homeGoals===result.awayGoals;
+        const matchVerb = wonMatch ? "Vitória" : drewMatch ? "Empate" : "Derrota";
+
+        if(updatedCup.phase==="final"){
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+            headline:`${player.club.name} avança à final da ${cup.name}!`,
+            summary:`${matchVerb} contra o ${result.opponentClub.name} confirma a classificação em 1º ou 2º do grupo.`, date:`Temporada ${career.currentSeason}`, impact:20, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Classificado para a final da ${cup.name}!`, career.currentSeason, "classificação");
+        } else if(updatedCup.eliminated){
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+            headline:`${player.club.name} é eliminado na fase de grupos da ${cup.name}`,
+            summary:`Campanha na fase de grupos não foi suficiente para avançar na competição continental.`, date:`Temporada ${career.currentSeason}`, impact:-10, season:career.currentSeason };
+        } else {
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
+            headline:`${matchVerb} do ${player.club.name} na fase de grupos da ${cup.name}`,
+            summary:`Resultado contra o ${result.opponentClub.name} mantém viva a briga por vaga na próxima fase.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?6:drewMatch?1:-4, season:career.currentSeason };
+        }
       } else {
-        cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
-          headline:`${player.club.name} é eliminado da ${cup.name}`,
-          summary:`Derrota${isDraw?" nos pênaltis":""} para o ${result.opponentClub.name} encerra o sonho do título.`, date:`Temporada ${career.currentSeason}`, impact:-10, season:career.currentSeason };
+        const isDraw = result.homeGoals===result.awayGoals;
+        const wonNormally = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
+        const wonOnPens = isDraw && shootout && shootout.winnerSide && (shootout.winnerSide==="home")===pendingMatch.isHome;
+        const finalPlayerWon = wonNormally || wonOnPens || (isDraw && !shootout && Math.random()<0.5);
+        updatedCup = advanceContinentalCup(cup, finalPlayerWon, player.club, pendingMatch.opponentClub);
+        if(finalPlayerWon){
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+            headline:`CAMPEÃO! ${player.club.name} conquista a ${cup.name} com ${player.firstName} em campo`,
+            summary:`Título decidido${isDraw?" nos pênaltis":""} contra o ${result.opponentClub.name}, no jogo mais importante do continente.`, date:`Temporada ${career.currentSeason}`, impact:35, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Campeão da ${cup.name}!`, career.currentSeason, "título");
+          updatedPlayer = { ...updatedPlayer, achievements:[...updatedPlayer.achievements, { id:`cup-${cup.name}-${career.currentSeason}`, title:`Campeão da ${cup.name}`, description:`Título continental conquistado na temporada ${career.currentSeason}.`, season:career.currentSeason }] };
+        } else {
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+            headline:`${player.club.name} é vice-campeão da ${cup.name}`,
+            summary:`Derrota${isDraw?" nos pênaltis":""} na final para o ${result.opponentClub.name} deixa o título pelo caminho.`, date:`Temporada ${career.currentSeason}`, impact:8, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Vice-campeão da ${cup.name}.`, career.currentSeason, "título");
+        }
       }
       updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
       setLastMatchResult(result);
-      setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, [pendingMatch.cupKey]: updatedCup });
+      setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, continentalCup:updatedCup });
       setScreen("dashboard");
       return;
     }
@@ -2713,7 +2968,46 @@ function MatchPage(){
               <p className="text-sm text-steel-400 mb-1">{outcomes.filter(o=>o.goal).length} gol(s) seu(s) · {outcomes.filter(o=>o.assist).length} assistência(s) · {outcomes.filter(o=>o.save||o.defense).length} ação(ões) decisiva(s)</p>
               <p className="text-sm text-steel-400 mb-6">{outcomes.filter(o=>o.success).length} de {outcomes.length} decisões bem resolvidas em campo.</p>
               {outcomes.some(o=>o.card==="vermelho") && <p className="text-sm text-state-down mb-4">Você foi expulso e vai cumprir suspensão.</p>}
-              <button className="btn-primary" onClick={goToPress}>Encerrar partida</button>
+              {pendingMatch.isCup && pendingMatch.isKnockout && homeGoals===awayGoals ? (
+                <button className="btn-primary" onClick={startShootout}>Decidir nos pênaltis</button>
+              ) : (
+                <button className="btn-primary" onClick={goToPress}>Encerrar partida</button>
+              )}
+            </div>
+          )}
+
+          {subPhase==="penalties" && shootout && (
+            <div className="card p-6 text-center fade-in">
+              <span className="eyebrow">Disputa de pênaltis</span>
+              <h2 className="font-display text-3xl font-bold text-steel-100 mt-2 mb-1 stat-num">
+                {shootout.homeKicks.filter(Boolean).length} — {shootout.awayKicks.filter(Boolean).length}
+              </h2>
+              <p className="text-xs text-steel-400 mb-5">{homeClub.name} {shootout.homeKicks.map(k=>k?"●":"○").join(" ")} · {shootout.awayKicks.map(k=>k?"●":"○").join(" ")} {awayClub.name}</p>
+
+              {shootout.done ? (
+                <>
+                  <p className="font-display text-lg text-steel-100 mb-6">
+                    {(shootout.winnerSide==="home")===pendingMatch.isHome ? "Você vence a disputa de pênaltis!" : "Vocês perdem a disputa de pênaltis."}
+                  </p>
+                  <button className="btn-primary" onClick={goToPress}>Continuar</button>
+                </>
+              ) : (shootout.turn==="home")===pendingMatch.isHome ? (
+                <div className="grid sm:grid-cols-3 gap-3">
+                  {["esquerdo","centro","direito"].map(corner=>{
+                    const { onTargetPct, profile } = computeSetPieceChance(player, "penalty", corner);
+                    const chanceColor = onTargetPct>=60?"text-state-up":onTargetPct>=40?"text-state-warn":"text-state-down";
+                    return (
+                      <button key={corner} onClick={()=>takePlayerShootoutKick(corner)} className="text-left p-4 rounded-lg border border-pitch-700 bg-pitch-800 hover:border-touchline/60 hover:-translate-y-0.5 transition-all">
+                        <p className="font-display font-semibold text-steel-100 mb-1">{profile.label}</p>
+                        <p className={`stat-num text-lg ${chanceColor}`}>{onTargetPct}%</p>
+                        <p className="text-[10px] text-steel-400 mt-1">no alvo</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <button className="btn-primary" onClick={takeOpponentShootoutKick}>Cobrança do {(shootout.turn==="home")?homeClub.name:awayClub.name}</button>
+              )}
             </div>
           )}
 
@@ -2858,7 +3152,7 @@ function SeasonSummaryPage(){
     const builtCups = buildSeasonCups(newClub);
     const totalLeagueWeeks = newCalendar.rounds.length*2;
     const newCup = scheduleCupWeeks(builtCups.cup, totalLeagueWeeks, 0);
-    const newContinentalCup = builtCups.continentalCup ? scheduleCupWeeks(builtCups.continentalCup, totalLeagueWeeks, 4) : null;
+    const newContinentalCup = builtCups.continentalCup ? scheduleContinentalWeeks(builtCups.continentalCup, totalLeagueWeeks, 4) : null;
     setCareer({ ...career, player:updatedPlayer, currentCoach:newCoach, calendar:newCalendar, cup:newCup, continentalCup:newContinentalCup,
       seasonProgress:{ ...career.seasonProgress, matchesTotal:newCalendar.matchesTotal } });
     setTransferOffers([]);
