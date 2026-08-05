@@ -290,11 +290,15 @@ function getAttr(p,key){
   return p.attributes.mental[key];
 }
 function setAttr(p,key,value){
-  const v = Math.min(99, Math.max(1, Math.round(value)));
+  // Guarda o valor com casas decimais de verdade — arredondar aqui era o bug que travava
+  // qualquer evolução de treino pequena (ganhos de 0.1-0.5 nunca se acumulavam). O arredondamento
+  // acontece só na hora de EXIBIR o atributo pro jogador (ver formatAttrDisplay).
+  const v = Math.min(99, Math.max(1, value));
   if(key in p.attributes.physical) p.attributes.physical[key]=v;
   else if(key in p.attributes.technical) p.attributes.technical[key]=v;
   else p.attributes.mental[key]=v;
 }
+function formatAttrDisplay(value){ return Math.round(value); }
 function calculateOverall(position, attributes){
   const weights = POSITION_WEIGHTS[position];
   let total=0, weightSum=0;
@@ -641,7 +645,7 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
     redCards:nextSeasonProgress.redCards, injuries:nextSeasonProgress.injuriesThisSeason, titles:[], overallStart:nextSeasonProgress.overallAtStart,
     overallEnd:evo.overallAfter, marketValue:Math.round(evo.overallAfter*40000*(evo.player.age<=23?1.4:1)) };
   const seasonNews = newsFromSeasonEnd(evo.player, career.currentSeason, evo.overallAfter-evo.overallBefore);
-  let finalPlayer = { ...evo.player, seasons:[...evo.player.seasons, seasonRecord], newsLog:[seasonNews, ...evo.player.newsLog].slice(0,40) };
+  let finalPlayer = { ...evo.player, energy:100, morale:Math.min(100, evo.player.morale+8), seasons:[...evo.player.seasons, seasonRecord], newsLog:[seasonNews, ...evo.player.newsLog].slice(0,40) };
 
   const awards = computeSeasonAwards(finalPlayer, seasonRecord, career.calendar);
   if(awards.length>0){
@@ -752,9 +756,23 @@ function continentalRoundLabel(cup){
   return "";
 }
 
+// Copa nacional (tipo Copa do Brasil): mistura divisões de verdade, priorizando os clubes de maior
+// reputação — 16 vagas, começando nas oitavas de final, garantindo o clube do jogador entre elas.
+function buildDomesticCupPool(playerClub){
+  const link = DIVISION_LINKS[playerClub.league];
+  const pool = clubsByCountry(playerClub.countryId).filter(c=>{
+    if(c.league===playerClub.league) return true;
+    if(link && link.down && c.league===link.down) return true;
+    if(link && link.up && c.league===link.up) return true;
+    return false;
+  });
+  const others = pool.filter(c=>c.id!==playerClub.id).sort((a,b)=>b.reputation-a.reputation).slice(0,15);
+  return [playerClub, ...others];
+}
+
 function buildSeasonCups(playerClub, standingsQualified){
-  const domesticPool = clubsByCountry(playerClub.countryId);
-  let cup = buildCup(playerClub.countryId==="brasil"?"Copa do Brasil":"Copa Nacional", domesticPool, playerClub, 8);
+  const domesticPool = buildDomesticCupPool(playerClub);
+  let cup = buildCup(playerClub.countryId==="brasil"?"Copa do Brasil":"Copa Nacional", domesticPool, playerClub, 16);
   const eligible = standingsQualified || playerClub.tier==="grande" || playerClub.reputation>=70;
   let continentalCup = null;
   if(eligible){
@@ -788,6 +806,33 @@ function ageMultiplier(age){
   if(age<=29) return 0.55;
   if(age<=33) return 0.28;
   return 0.1;
+}
+
+// Evolução pela atuação em campo — nota baixa não rende nada (pode até regredir um pouco),
+// nota alta rende bem mais que um treino comum. Só mexe nos atributos que a partida realmente usou.
+function applyMatchAttributeProgress(playerIn, rating, usedKeys){
+  const player = JSON.parse(JSON.stringify(playerIn));
+  const uniqueKeys = [...new Set((usedKeys||[]).filter(Boolean))];
+  if(uniqueKeys.length===0) return player;
+  let multiplier;
+  if(rating<4.5) multiplier = -0.35;
+  else if(rating<5.9) multiplier = 0.05;
+  else if(rating<6.9) multiplier = 0.5;
+  else if(rating<7.9) multiplier = 1.0;
+  else if(rating<8.9) multiplier = 1.6;
+  else multiplier = 2.4;
+  const ageMult = ageMultiplier(player.age);
+  uniqueKeys.forEach(key=>{
+    const current = getAttr(player, key);
+    const headroom = player.hiddenPotential - current;
+    let delta = multiplier * ageMult * (rand(2,5)/10);
+    if(delta>0 && headroom<=0) delta = 0;
+    if(delta>0 && headroom>0 && headroom<delta) delta = headroom*0.5;
+    if(delta<0) delta = Math.max(delta, -(current-1)); // nunca deixa negativo
+    if(delta!==0) setAttr(player, key, current+delta);
+  });
+  player.overall = calculateOverall(player.position, player.attributes);
+  return player;
 }
 
 function applyTraining(player, coachTrainingQuality, optionId){
@@ -914,6 +959,14 @@ const MOMENTS_BY_GROUP = {
         {id:"recover", label:"Correr para ajudar na marcação", usesAttributes:["stamina","pace","determination"], risk:"médio"},
         {id:"tactical-foul", label:"Cometer falta tática para cortar a jogada", usesAttributes:["decisionMaking","strength"], risk:"alto"},
       ], cardRisk:0.3 },
+    { description:"Cruzamento na área encontra você livre de marcação.", options:[
+        {id:"first-time", label:"Finalizar de primeira", usesAttributes:["finishing","balance","composure"], risk:"alto"},
+        {id:"control-first", label:"Dominar e ajeitar antes de bater", usesAttributes:["ballControl","positioning"], risk:"médio"},
+      ], canScore:true },
+    { description:"Você recebe de costas para o gol, marcado de perto pelo zagueiro.", options:[
+        {id:"turn-shoot", label:"Girar rápido e arriscar o chute", usesAttributes:["agility","finishing","composure"], risk:"alto"},
+        {id:"hold-and-lay", label:"Segurar a bola e tocar para o companheiro chegando", usesAttributes:["balance","vision","shortPass"], risk:"baixo"},
+      ], canScore:true, canAssist:true },
   ],
   ALL: [
     { description:"O treinador grita instruções da beira do campo, pedindo mais disciplina tática.", options:[
@@ -984,7 +1037,7 @@ function resolveChoice(player, moment, choiceId, opponentQuality){
   if(card==="amarelo") text += " O árbitro mostra o cartão amarelo.";
   if(card==="vermelho") text += " O árbitro expulsa você de campo!";
 
-  return { success, goal, assist, save, defense, card, text, receiverId };
+  return { success, goal, assist, save, defense, card, text, receiverId, usesAttributes: option.usesAttributes };
 }
 
 // ============================================================
@@ -1000,8 +1053,8 @@ function computeSetPieceChance(player, kind, corner){
   const attr = kind==="penalty" ? getAttr(player,"penalty") : getAttr(player,"freeKick");
   const composure = getAttr(player,"composure");
   const profile = CORNER_PROFILES[corner];
-  const base = (attr*0.7 + composure*0.3) + profile.execRisk;
-  const onTargetPct = Math.max(8, Math.min(96, Math.round(base - 15)));
+  const base = (attr*0.8 + composure*0.2) + profile.execRisk;
+  const onTargetPct = Math.max(20, Math.min(97, Math.round(base + 10)));
   return { onTargetPct, profile };
 }
 function resolveSetPiece(player, kind, corner, opponentQuality){
@@ -1012,19 +1065,19 @@ function resolveSetPiece(player, kind, corner, opponentQuality){
     const missTexts = kind==="penalty"
       ? [`Você chuta ${sideWord} e a bola vai por cima! Grande chance perdida.`, "A bola explode na trave e sai.", "Cobrança sai por cima do travessão."]
       : [`A cobrança de falta sai por cima do gol, ${sideWord}.`, "A barreira desvia a cobrança.", "O chute sai à margem do gol."];
-    return { success:false, goal:false, assist:false, text: pick(missTexts) };
+    return { success:false, goal:false, assist:false, text: pick(missTexts), usesAttributes:[kind==="penalty"?"penalty":"freeKick","composure"] };
   }
   const keeperSaveChance = Math.min(0.85, profile.keeperSaveChance * (opponentQuality/70));
   const saved = Math.random() < keeperSaveChance;
   if(saved){
     const keeperDive = corner==="centro" ? "O goleiro fica parado no meio e agarra a bola!" : `O goleiro pula para o ${corner==="esquerdo"?"canto esquerdo":"canto direito"} e faz a defesa!`;
-    return { success:false, goal:false, assist:false, text: keeperDive };
+    return { success:false, goal:false, assist:false, text: keeperDive, usesAttributes:[kind==="penalty"?"penalty":"freeKick","composure"] };
   }
   const keeperGuess = corner==="centro" ? "O goleiro se joga para um dos lados e não alcança!" : `O goleiro pula para o lado errado!`;
   const goalTexts = kind==="penalty"
     ? [`GOL de ${player.firstName} ${player.lastName}! Cobrança perfeita ${sideWord}, sem chances para o goleiro! ${keeperGuess}`, `GOL! Frieza total de ${player.firstName} na hora de decidir. ${keeperGuess}`]
     : [`GOL DE FALTA de ${player.firstName} ${player.lastName}! Que cobrança espetacular ${sideWord}!`, `GOL! A cobrança de ${player.firstName} faz a curva e morre no ângulo. ${keeperGuess}`];
-  return { success:true, goal:true, assist:false, text: pick(goalTexts) };
+  return { success:true, goal:true, assist:false, text: pick(goalTexts), usesAttributes:[kind==="penalty"?"penalty":"freeKick","composure"] };
 }
 
 function computeMatchRating(outcomes){
@@ -2796,6 +2849,10 @@ function MatchPage(){
     updatedPlayer.reputation.club = Math.min(100, Math.max(0, updatedPlayer.reputation.club + (result.rating-6)*2));
     updatedPlayer.reputation.fans = Math.min(100, Math.max(0, updatedPlayer.reputation.fans + result.playerGoals*5));
     updatedPlayer.reputation.national = Math.min(100, Math.max(0, updatedPlayer.reputation.national + (result.playerGoals>=2?4:result.rating>=8?2:0)));
+
+    // Evolução pela atuação da partida — usa os atributos que de fato entraram em jogo nas suas decisões.
+    const usedInMatch = outcomes.flatMap(o=>o.usesAttributes||[]);
+    updatedPlayer = applyMatchAttributeProgress(updatedPlayer, result.rating, usedInMatch);
 
     // Aplica o efeito acumulado das reações escolhidas durante os lances automáticos da partida.
     if(reactionEffects.length>0){
