@@ -451,6 +451,88 @@ function sortedStandings(calendar){
 }
 
 // ============================================================
+// COPAS — Copa Nacional (mistura divisões, como a Copa do Brasil de verdade)
+// e Copa Continental (Libertadores para América do Sul, estilo UEFA para a Europa)
+// ============================================================
+const SOUTH_AMERICA = ["brasil","argentina"];
+const EUROPE = ["portugal","espanha","inglaterra","alemanha","italia","franca"];
+function continentPool(countryId){
+  if(SOUTH_AMERICA.includes(countryId)) return SOUTH_AMERICA;
+  if(EUROPE.includes(countryId)) return EUROPE;
+  return [countryId];
+}
+function cupRoundName(teamsInRound){
+  if(teamsInRound<=2) return "Final";
+  if(teamsInRound<=4) return "Semifinal";
+  if(teamsInRound<=8) return "Quartas de final";
+  return "Oitavas de final";
+}
+function buildCup(name, poolTeams, playerClub, maxSize){
+  const others = poolTeams.filter(t=>t.id!==playerClub.id);
+  const shuffled = [...others].sort(()=>Math.random()-0.5);
+  const total = Math.min(maxSize||8, shuffled.length+1);
+  let pow=1; while(pow*2<=total) pow*=2;
+  const chosenOthers = shuffled.slice(0, pow-1);
+  const teams = [playerClub, ...chosenOthers].sort(()=>Math.random()-0.5);
+  const round1 = [];
+  for(let i=0;i<teams.length;i+=2) round1.push({ home:teams[i], away:teams[i+1], resolved:false, winner:null, homeGoals:null, awayGoals:null });
+  const roundsCount = Math.log2(teams.length);
+  return { name, teams, rounds:[round1], currentRoundIdx:0, roundsCount, eliminated:false, champion:null, playerClubId:playerClub.id, scheduledWeeks:[] };
+}
+function scheduleCupWeeks(cup, totalLeagueWeeks, offset){
+  offset = offset || 0;
+  const weeks = [];
+  for(let i=1;i<=cup.roundsCount;i++){
+    let w = Math.round((totalLeagueWeeks*i)/(cup.roundsCount+1)) + offset;
+    if(w%2!==0) w+=1;
+    if(w<2) w=2;
+    weeks.push(w);
+  }
+  return { ...cup, scheduledWeeks:weeks };
+}
+function resolveCupTie(tie){
+  if(tie.resolved) return tie;
+  const res = quickSimResult(tie.home, tie.away);
+  let winner;
+  if(res.homeGoals>res.awayGoals) winner=tie.home;
+  else if(res.awayGoals>res.homeGoals) winner=tie.away;
+  else winner = (tie.home.squadQuality+tie.home.reputation) >= (tie.away.squadQuality+tie.away.reputation) ? tie.home : (Math.random()<0.5?tie.home:tie.away);
+  return { ...tie, resolved:true, winner, homeGoals:res.homeGoals, awayGoals:res.awayGoals };
+}
+function findPlayerCupTie(cup){
+  if(!cup || cup.eliminated || cup.champion) return null;
+  const round = cup.rounds[cup.currentRoundIdx];
+  return round.find(t=>t.home.id===cup.playerClubId || t.away.id===cup.playerClubId) || null;
+}
+function advanceCup(cup, playerWon, playerClub, opponentClub){
+  const round = cup.rounds[cup.currentRoundIdx].map(t=>{
+    if(t.home.id===cup.playerClubId || t.away.id===cup.playerClubId){
+      return { ...t, resolved:true, winner: playerWon?playerClub:opponentClub };
+    }
+    return resolveCupTie(t);
+  });
+  const updatedRounds = [...cup.rounds.slice(0,-1), round];
+  if(!playerWon) return { ...cup, rounds:updatedRounds, eliminated:true };
+  const winners = round.map(t=>t.winner);
+  if(winners.length===1) return { ...cup, rounds:updatedRounds, champion:winners[0] };
+  const nextRound = [];
+  for(let i=0;i<winners.length;i+=2) nextRound.push({ home:winners[i], away:winners[i+1], resolved:false, winner:null, homeGoals:null, awayGoals:null });
+  return { ...cup, rounds:[...updatedRounds, nextRound], currentRoundIdx:cup.currentRoundIdx+1 };
+}
+function buildSeasonCups(playerClub){
+  const domesticPool = clubsByCountry(playerClub.countryId);
+  let cup = buildCup(playerClub.countryId==="brasil"?"Copa do Brasil":"Copa Nacional", domesticPool, playerClub, 8);
+  const eligible = playerClub.tier==="grande" || playerClub.reputation>=70;
+  let continentalCup = null;
+  if(eligible){
+    const continentPoolTeams = continentPool(playerClub.countryId).flatMap(cid=>clubsByCountry(cid)).filter(c=>c.tier!=="pequeno");
+    const contName = SOUTH_AMERICA.includes(playerClub.countryId) ? "Libertadores" : "Champions Continental";
+    continentalCup = buildCup(contName, continentPoolTeams, playerClub, 8);
+  }
+  return { cup, continentalCup };
+}
+
+// ============================================================
 // TREINO E VIDA PESSOAL
 // ============================================================
 const TRAINING_OPTIONS = [
@@ -1171,6 +1253,10 @@ function createNewCareer(form, clubObj){
   const coach = generateCoach(clubObj);
   const squad = generateSquad(clubObj);
   const calendar = buildCalendar(clubObj);
+  const totalLeagueWeeks = calendar.rounds.length*2;
+  let { cup, continentalCup } = buildSeasonCups(clubObj);
+  cup = scheduleCupWeeks(cup, totalLeagueWeeks, 0);
+  if(continentalCup) continentalCup = scheduleCupWeeks(continentalCup, totalLeagueWeeks, 4);
 
   const player = {
     id:`player-${Date.now()}`, firstName:form.firstName, lastName:form.lastName, nickname:form.nickname,
@@ -1190,7 +1276,7 @@ function createNewCareer(form, clubObj){
     version:"2.0.0", player, currentCoach:coach, currentSeason:1, weekIndex:0,
     currentDate:"Pré-temporada, Ano 1", calendarStage:"pre-temporada",
     seasonProgress:{ matchesPlayed:0, matchesTotal:calendar.matchesTotal, goals:0, assists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:overall },
-    calendar, pendingTransferOffers:[], importantDecisions:[], retired:false,
+    calendar, cup, continentalCup, pendingTransferOffers:[], importantDecisions:[], retired:false,
   };
 }
 
@@ -1757,7 +1843,14 @@ function DashboardPage(){
   const isMatchWeek = career.weekIndex % 2 === 1 && seasonProgress.matchesPlayed < seasonProgress.matchesTotal;
   const fixture = isMatchWeek ? findPlayerFixture(calendar, player.club.id, currentRoundIdx) : null;
   const isByeWeek = isMatchWeek && !fixture;
-  const isTrainingWeek = !isMatchWeek && !activeInjury;
+  const domesticCupTie = (!isMatchWeek && !activeInjury && !isSuspended && career.cup && !career.cup.eliminated && !career.cup.champion && career.cup.scheduledWeeks.includes(career.weekIndex))
+    ? findPlayerCupTie(career.cup) : null;
+  const continentalCupTie = (!domesticCupTie && !isMatchWeek && !activeInjury && !isSuspended && career.continentalCup && !career.continentalCup.eliminated && !career.continentalCup.champion && career.continentalCup.scheduledWeeks.includes(career.weekIndex))
+    ? findPlayerCupTie(career.continentalCup) : null;
+  const cupTie = domesticCupTie || continentalCupTie;
+  const cupKey = domesticCupTie ? "cup" : "continentalCup";
+  const activeCup = domesticCupTie ? career.cup : career.continentalCup;
+  const isTrainingWeek = !isMatchWeek && !activeInjury && !cupTie;
 
   function persist(updater){ setCareer(updater(career)); }
 
@@ -1769,6 +1862,14 @@ function DashboardPage(){
 
   function goToMatch(){
     setPendingMatch({ opponentClub: fixture.home.id===player.club.id ? fixture.away : fixture.home, isHome: fixture.home.id===player.club.id, competition: player.club.league });
+    setScreen("match");
+  }
+
+  function goToCupMatch(){
+    const tie = cupTie;
+    const roundName = cupRoundName(activeCup.rounds[activeCup.currentRoundIdx].length*2);
+    setPendingMatch({ opponentClub: tie.home.id===player.club.id ? tie.away : tie.home, isHome: tie.home.id===player.club.id,
+      competition: `${activeCup.name} — ${roundName}`, isCup:true, cupKey });
     setScreen("match");
   }
 
@@ -1893,6 +1994,15 @@ function DashboardPage(){
               <h2 className="font-display text-xl font-semibold text-steel-100 mt-2 mb-4">Seu time folga nesta rodada do {calendar.league}.</h2>
               <button className="btn-primary" onClick={skipByeWeek}>Avançar semana</button>
             </div>
+          ) : cupTie ? (
+            <div className="card p-6 bg-stadium-glow">
+              <span className="eyebrow">{activeCup.name} · {cupRoundName(activeCup.rounds[activeCup.currentRoundIdx].length*2)}</span>
+              <h2 className="font-display text-2xl font-semibold text-steel-100 mt-1 mb-1">
+                {cupTie.home.id===player.club.id ? `${player.club.name} x ${cupTie.away.name}` : `${cupTie.home.name} x ${player.club.name}`}
+              </h2>
+              <p className="text-sm text-steel-400 mb-5">{cupTie.home.id===player.club.id ? "Jogo em casa" : "Jogo fora de casa"} · mata-mata, quem perder está fora.</p>
+              <button className="btn-primary" onClick={goToCupMatch}>Ir para o jogo</button>
+            </div>
           ) : isMatchWeek && fixture ? (
             <div className="card p-6 bg-stadium-glow">
               <span className="eyebrow">Próximo compromisso · {calendar.league}</span>
@@ -1931,6 +2041,30 @@ function DashboardPage(){
         </div>
 
         <div className="space-y-6">
+          {(career.cup || career.continentalCup) && (
+            <div className="card p-4">
+              <h3 className="font-display font-semibold text-steel-100 mb-3">Copas</h3>
+              <div className="space-y-2 text-xs">
+                {career.cup && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-steel-300">{career.cup.name}</span>
+                    <span className={career.cup.champion?"text-crest-gold font-semibold":career.cup.eliminated?"text-state-down":"text-steel-400"}>
+                      {career.cup.champion ? "🏆 Campeão" : career.cup.eliminated ? "Eliminado" : cupRoundName(career.cup.rounds[career.cup.currentRoundIdx].length*2)}
+                    </span>
+                  </div>
+                )}
+                {career.continentalCup && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-steel-300">{career.continentalCup.name}</span>
+                    <span className={career.continentalCup.champion?"text-crest-gold font-semibold":career.continentalCup.eliminated?"text-state-down":"text-steel-400"}>
+                      {career.continentalCup.champion ? "🏆 Campeão" : career.continentalCup.eliminated ? "Eliminado" : cupRoundName(career.continentalCup.rounds[career.continentalCup.currentRoundIdx].length*2)}
+                    </span>
+                  </div>
+                )}
+                {!career.continentalCup && <p className="text-[11px] text-steel-400">Reputação ainda baixa para disputar competição continental.</p>}
+              </div>
+            </div>
+          )}
           <div className="card p-4">
             <h3 className="font-display font-semibold text-steel-100 mb-3">Elenco — {player.club.name}</h3>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
@@ -2227,6 +2361,37 @@ function MatchPage(){
       updatedPlayer = addMilestone(updatedPlayer, `Atuação histórica: nota ${result.rating} contra o ${result.opponentClub.name}.`, career.currentSeason, "atuação");
     }
 
+    // Partida de copa: mata-mata à parte, não mexe na tabela nem no contador de jogos da liga.
+    if(pendingMatch.isCup){
+      const cup = career[pendingMatch.cupKey];
+      const isDraw = result.homeGoals===result.awayGoals;
+      const wonNormally = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
+      const finalPlayerWon = wonNormally || (isDraw && Math.random()<0.5);
+      const updatedCup = advanceCup(cup, finalPlayerWon, player.club, pendingMatch.opponentClub);
+
+      let cupNews;
+      if(updatedCup.champion && updatedCup.champion.id===player.club.id){
+        cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+          headline:`CAMPEÃO! ${player.club.name} conquista a ${cup.name} com ${player.firstName} em campo`,
+          summary:`Título decidido${isDraw?" nos pênaltis":""} contra o ${result.opponentClub.name}.`, date:`Temporada ${career.currentSeason}`, impact:30, season:career.currentSeason };
+        updatedPlayer = addMilestone(updatedPlayer, `Campeão da ${cup.name}!`, career.currentSeason, "título");
+        updatedPlayer = { ...updatedPlayer, achievements:[...updatedPlayer.achievements, { id:`cup-${cup.name}-${career.currentSeason}`, title:`Campeão da ${cup.name}`, description:`Título conquistado na temporada ${career.currentSeason}.`, season:career.currentSeason }] };
+      } else if(finalPlayerWon){
+        cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
+          headline:`${player.club.name} avança na ${cup.name}`,
+          summary:`Vitória${isDraw?" nos pênaltis":""} sobre o ${result.opponentClub.name} garante vaga na próxima fase.`, date:`Temporada ${career.currentSeason}`, impact:10, season:career.currentSeason };
+      } else {
+        cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+          headline:`${player.club.name} é eliminado da ${cup.name}`,
+          summary:`Derrota${isDraw?" nos pênaltis":""} para o ${result.opponentClub.name} encerra o sonho do título.`, date:`Temporada ${career.currentSeason}`, impact:-10, season:career.currentSeason };
+      }
+      updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
+      setLastMatchResult(result);
+      setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, [pendingMatch.cupKey]: updatedCup });
+      setScreen("dashboard");
+      return;
+    }
+
     // Classificação: usa exatamente os placares que apareceram no ticker ao vivo, não uma nova simulação.
     applyResultToStandings(career.calendar.standings, homeClub, awayClub, result.homeGoals, result.awayGoals);
     otherGames.forEach(g=> applyResultToStandings(career.calendar.standings, g.home, g.away, g.homeGoals, g.awayGoals));
@@ -2264,11 +2429,18 @@ function MatchPage(){
       setTransferOffers(offers);
 
       const nextCalendar = evo.retirementSuggested ? career.calendar : buildCalendar(player.club);
+      let nextCup = career.cup, nextContinentalCup = career.continentalCup;
+      if(!evo.retirementSuggested){
+        const built = buildSeasonCups(player.club);
+        const totalLeagueWeeks = nextCalendar.rounds.length*2;
+        nextCup = scheduleCupWeeks(built.cup, totalLeagueWeeks, 0);
+        nextContinentalCup = built.continentalCup ? scheduleCupWeeks(built.continentalCup, totalLeagueWeeks, 4) : null;
+      }
 
       setCareer({ ...career, player:finalPlayer, weekIndex:0,
         currentSeason: evo.retirementSuggested ? career.currentSeason : career.currentSeason+1,
         seasonProgress:{ matchesPlayed:0, matchesTotal:nextCalendar.matchesTotal, goals:0, assists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:evo.overallAfter },
-        calendar: nextCalendar, retired:evo.retirementSuggested, retirementReason:evo.retirementReason });
+        calendar: nextCalendar, cup:nextCup, continentalCup:nextContinentalCup, retired:evo.retirementSuggested, retirementReason:evo.retirementReason });
       setScreen(evo.retirementSuggested ? "retirement" : "season-summary");
     } else {
       setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:career.calendar });
@@ -2297,7 +2469,7 @@ function MatchPage(){
             <div className="flex items-center justify-between">
               <TeamTag name={homeClub.name} color={homeClub.primaryColor} />
               <div className="text-center px-4">
-                <p className="text-[10px] text-steel-400 uppercase tracking-wide">{pendingMatch.competition} · Rodada {currentRoundIdx+1}</p>
+                <p className="text-[10px] text-steel-400 uppercase tracking-wide">{pendingMatch.competition}{!pendingMatch.isCup && ` · Rodada ${currentRoundIdx+1}`}</p>
                 <p className="font-display text-4xl font-bold text-steel-100 stat-num">{homeGoals} — {awayGoals}</p>
                 <p className={`font-display text-sm mt-1 ${subPhase==="rolling"?"text-touchline pulse-dot":"text-steel-400"}`}>{displayMinute}</p>
               </div>
@@ -2555,7 +2727,11 @@ function SeasonSummaryPage(){
     let updatedPlayer = { ...career.player, club:newClub, clubHistory:updatedHistory, squad:newSquad, coachTrust:50,
       reputation:{...career.player.reputation, club:35}, newsLog:[news, ...career.player.newsLog].slice(0,40) };
     updatedPlayer = addMilestone(updatedPlayer, `Transferência confirmada: rumo ao ${newClub.name}.`, career.currentSeason, "transferência");
-    setCareer({ ...career, player:updatedPlayer, currentCoach:newCoach, calendar:newCalendar,
+    const builtCups = buildSeasonCups(newClub);
+    const totalLeagueWeeks = newCalendar.rounds.length*2;
+    const newCup = scheduleCupWeeks(builtCups.cup, totalLeagueWeeks, 0);
+    const newContinentalCup = builtCups.continentalCup ? scheduleCupWeeks(builtCups.continentalCup, totalLeagueWeeks, 4) : null;
+    setCareer({ ...career, player:updatedPlayer, currentCoach:newCoach, calendar:newCalendar, cup:newCup, continentalCup:newContinentalCup,
       seasonProgress:{ ...career.seasonProgress, matchesTotal:newCalendar.matchesTotal } });
     setTransferOffers([]);
     setScreen("dashboard");
