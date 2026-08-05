@@ -350,7 +350,7 @@ function generateSquad(clubObj){
       const {first,last} = generateFictionalName(nat);
       const overall = Math.min(94, Math.max(38, base + rand(-14,10)));
       const status = i===0 ? (overall>=base?"titular":"rotação") : (overall<base-8?"promessa":"reserva");
-      squad.push({ id:`${clubObj.id}-sq-${idx}`, name:`${first} ${last}`, nationality:nat, age:rand(18,34), position:slot.position, overall, personality:pick(PERSONALITIES).name, status, relation:rand(45,70) });
+      squad.push({ id:`${clubObj.id}-sq-${idx}`, name:`${first} ${last}`, nationality:nat, age:rand(18,34), position:slot.position, overall, personality:pick(PERSONALITIES).name, status, relation:rand(45,70), goals:0, assists:0 });
     }
   });
   return squad;
@@ -971,10 +971,12 @@ function resolveChoice(player, moment, choiceId, opponentQuality){
   const successTexts = ["Você executa a jogada com categoria — a torcida vibra!","Excelente decisão: a jogada funciona como planejado.","Você resolve bem a situação e o lance termina a seu favor."];
   const failTexts = ["A jogada não sai como esperado e a chance se perde.","Você erra o timing e a oportunidade escapa.","A pressão do adversário atrapalha o lance."];
   let text = pick(success?successTexts:failTexts);
+  let receiverId = null;
   if(goal) text = `GOL! ${player.firstName} ${player.lastName} não perdoa e a bola morre no fundo da rede!`;
   else if(assist){
     const attackers = (player.squad||[]).filter(t=>["CA","SA","PD","PE","MEIA"].includes(t.position));
     const receiver = pick(attackers.length>0?attackers:(player.squad||[{name:"seu companheiro"}]));
+    receiverId = receiver.id || null;
     text = `Assistência perfeita de ${player.firstName}! ${receiver.name} só empurra para o gol!`;
   }
   else if(save) text = "DEFESA! Você evita o gol certo com uma intervenção decisiva!";
@@ -982,7 +984,7 @@ function resolveChoice(player, moment, choiceId, opponentQuality){
   if(card==="amarelo") text += " O árbitro mostra o cartão amarelo.";
   if(card==="vermelho") text += " O árbitro expulsa você de campo!";
 
-  return { success, goal, assist, save, defense, card, text };
+  return { success, goal, assist, save, defense, card, text, receiverId };
 }
 
 // ============================================================
@@ -1079,7 +1081,7 @@ function resolveAutoTick(tick, opponentQuality, teamQuality, teammateSquad, oppo
   const missKind = isOpponent ? "opponentMiss" : "teamMiss";
   if(!goal) return { ...tick, kind:missKind, text: pick(AUTO_TICK_TEXTS[missKind]) };
   const goalKind = isOpponent ? "opponentGoal" : "teamGoal";
-  let scorerName = "";
+  let scorerName = "", scorerId = null;
   if(isOpponent){
     const nat = (opponentClub && COUNTRY_NATIONALITY[opponentClub.countryId]) || "Brasil";
     const { first, last } = generateFictionalName(nat);
@@ -1088,11 +1090,12 @@ function resolveAutoTick(tick, opponentQuality, teamQuality, teammateSquad, oppo
     const attackers = teammateSquad.filter(t=>["CA","SA","PD","PE","MEIA","MC","VOL"].includes(t.position));
     const scorer = pick(attackers.length>0 ? attackers : teammateSquad);
     scorerName = scorer.name;
+    scorerId = scorer.id;
   } else {
     scorerName = "Seu companheiro";
   }
   const text = pick(AUTO_TICK_TEXTS[goalKind]).replace("{scorer}", scorerName);
-  return { ...tick, kind: goalKind, text, scorerName };
+  return { ...tick, kind: goalKind, text, scorerName, scorerId };
 }
 
 // ============================================================
@@ -1110,6 +1113,8 @@ function computeLeagueTopScorers(calendar, player, seasonGoalsSoFar, playerLiveG
     const goals = Math.max(0, Math.round(rate * roundsPlayed));
     rows.push({ name:`${scorer.first} ${scorer.last}`, club:s.club.name, goals });
   });
+  // Companheiros de elenco de verdade — gols marcados de fato durante as partidas, não estimativa.
+  (player.squad||[]).forEach(tm=>{ if(tm.goals>0) rows.push({ name:tm.name, club:player.club.name, goals:tm.goals }); });
   const playerGoalsTotal = (seasonGoalsSoFar||0) + (playerLiveGoals||0);
   rows.push({ name:`${player.firstName} ${player.lastName}`, club:player.club.name, goals: playerGoalsTotal, isPlayer:true });
   return rows.sort((a,b)=>b.goals-a.goals).slice(0,8);
@@ -2593,6 +2598,7 @@ function MatchPage(){
   const [pressAnswered, setPressAnswered] = useState(false);
   const [showTopScorers, setShowTopScorers] = useState(false);
   const [reactionEffects, setReactionEffects] = useState([]);
+  const [teammateGoalEvents, setTeammateGoalEvents] = useState([]);
 
   const opponentQuality = useMemo(()=>{
     const c = pendingMatch.opponentClub;
@@ -2642,9 +2648,7 @@ function MatchPage(){
     }
     if(beat.type==="substitution"){
       pushLog(beat.minute, `Você entra em campo! O treinador faz a substituição aos ${beat.minute}'.`);
-      const next = beatIndex+1;
-      setBeatIndex(next);
-      playBeat(next);
+      setSubPhase("substitution");
       return;
     }
     if(beat.type==="tick"){
@@ -2655,6 +2659,7 @@ function MatchPage(){
       }
       setCurrentTick(resolved);
       if(isGoal) registerGoal(resolved.kind==="teamGoal");
+      if(resolved.kind==="teamGoal" && resolved.scorerId){ setTeammateGoalEvents(prev=>[...prev, resolved.scorerId]); }
       pushLog(beat.minute, resolved.text);
       const tense = Math.abs(homeGoals-awayGoals)<=1 && beat.minute>=75;
       if(isGoal || Math.random()<0.35){
@@ -2690,6 +2695,11 @@ function MatchPage(){
     setBeatIndex(next);
     playBeat(next);
   }
+  function continueFromSubstitution(){
+    const next = beatIndex+1;
+    setBeatIndex(next);
+    playBeat(next);
+  }
 
   function choose(choiceId){
     const beat = timeline[beatIndex];
@@ -2705,6 +2715,7 @@ function MatchPage(){
       setCurrentOutcome(outcome);
       setOutcomes(prev=>[...prev, outcome]);
       if(outcome.goal || outcome.assist) registerGoal(true); // assistência também é gol do seu time
+      if(outcome.assist && outcome.receiverId){ setTeammateGoalEvents(prev=>[...prev, outcome.receiverId]); }
       pushLog(beat.minute, outcome.text);
       const tense = Math.abs(homeGoals-awayGoals)<=1 && beat.minute>=75;
       setCrowdLine(crowdReaction(outcome.success, tense));
@@ -2794,6 +2805,13 @@ function MatchPage(){
       updatedPlayer.morale = Math.round(Math.min(100, Math.max(0, updatedPlayer.morale + sums.morale)));
       updatedPlayer.coachTrust = Math.round(Math.min(100, Math.max(0, updatedPlayer.coachTrust + sums.coachTrust)));
       updatedPlayer.relationships.teammates = Math.min(100, Math.max(0, updatedPlayer.relationships.teammates + sums.teammates));
+    }
+
+    // Credita os gols de companheiros marcados durante a partida na estatística do elenco de verdade.
+    if(teammateGoalEvents.length>0){
+      const counts = {};
+      teammateGoalEvents.forEach(id=>{ counts[id] = (counts[id]||0)+1; });
+      updatedPlayer.squad = updatedPlayer.squad.map(tm=> counts[tm.id] ? { ...tm, goals:(tm.goals||0)+counts[tm.id] } : tm);
     }
 
     if(answer){
@@ -3014,6 +3032,14 @@ function MatchPage(){
               <h2 className="font-display text-2xl font-semibold text-steel-100 mt-2 mb-4">{homeClub.name} {homeGoals} — {awayGoals} {awayClub.name}</h2>
               <p className="text-sm text-steel-400 mb-6">Os times vão para o vestiário. Segundo tempo a seguir.</p>
               <button className="btn-primary" onClick={continueFromHalftime}>Voltar para o segundo tempo</button>
+            </div>
+          )}
+
+          {subPhase==="substitution" && (
+            <div className="card p-6 text-center fade-in">
+              <span className="eyebrow">Substituição</span>
+              <h2 className="font-display text-xl font-semibold text-state-up mt-2 mb-4">Você entra em campo!</h2>
+              <button className="btn-primary" onClick={continueFromSubstitution}>Continuar</button>
             </div>
           )}
 
