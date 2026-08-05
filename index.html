@@ -519,10 +519,54 @@ function advanceCup(cup, playerWon, playerClub, opponentClub){
   for(let i=0;i<winners.length;i+=2) nextRound.push({ home:winners[i], away:winners[i+1], resolved:false, winner:null, homeGoals:null, awayGoals:null });
   return { ...cup, rounds:[...updatedRounds, nextRound], currentRoundIdx:cup.currentRoundIdx+1 };
 }
-function buildSeasonCups(playerClub){
+// Divisões ligadas por promoção/rebaixamento (hoje só o Brasil tem duas divisões cadastradas).
+const DIVISION_LINKS = {
+  "Brasileirão Série A": { down:"Brasileirão Série B", relegationSpots:3 },
+  "Brasileirão Série B": { up:"Brasileirão Série A", promotionSpots:2 },
+};
+// Zona de classificação continental: melhores colocados da temporada, além do critério de reputação já existente.
+const CONTINENTAL_QUALIFICATION_SPOTS = 4;
+
+function applyLeagueOutcome(player, calendar, season){
+  const standings = sortedStandings(calendar);
+  const position = standings.findIndex(s=>s.club.id===player.club.id) + 1;
+  const totalTeams = standings.length;
+  let updated = player;
+  let divisionChanged = null;
+
+  const link = DIVISION_LINKS[player.club.league];
+  if(link && link.down && position > totalTeams - link.relegationSpots){
+    const newClub = { ...player.club, league:link.down, tier: player.club.tier==="grande"?"medio":"pequeno" };
+    updated = { ...updated, club:newClub };
+    updated = addMilestone(updated, `Rebaixado: ${player.club.name} cai para a ${link.down} após terminar em ${position}º lugar.`, season, "rebaixamento");
+    const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+      headline:`Queda! ${player.club.name} é rebaixado para a ${link.down}`,
+      summary:`Time termina a temporada em ${position}º lugar e amarga o rebaixamento.`, date:`Temporada ${season}`, impact:-18, season };
+    updated = { ...updated, newsLog:[news, ...updated.newsLog].slice(0,40) };
+    divisionChanged = "rebaixado";
+  } else if(link && link.up && position <= link.promotionSpots){
+    const newClub = { ...player.club, league:link.up, tier: player.club.tier==="pequeno"?"medio":player.club.tier };
+    updated = { ...updated, club:newClub };
+    updated = addMilestone(updated, `Acesso! ${player.club.name} sobe para a ${link.up} após terminar em ${position}º lugar.`, season, "acesso");
+    const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+      headline:`Acesso garantido! ${player.club.name} sobe para a ${link.up}`,
+      summary:`Campanha de ${position}º lugar garante o retorno à elite do futebol nacional.`, date:`Temporada ${season}`, impact:20, season };
+    updated = { ...updated, newsLog:[news, ...updated.newsLog].slice(0,40) };
+    divisionChanged = "promovido";
+  }
+
+  const qualifiedForContinental = !divisionChanged && position <= CONTINENTAL_QUALIFICATION_SPOTS;
+  if(qualifiedForContinental){
+    updated = addMilestone(updated, `Classificação confirmada para a competição continental, terminando em ${position}º lugar.`, season, "classificação");
+  }
+
+  return { player:updated, position, totalTeams, divisionChanged, qualifiedForContinental };
+}
+
+function buildSeasonCups(playerClub, standingsQualified){
   const domesticPool = clubsByCountry(playerClub.countryId);
   let cup = buildCup(playerClub.countryId==="brasil"?"Copa do Brasil":"Copa Nacional", domesticPool, playerClub, 8);
-  const eligible = playerClub.tier==="grande" || playerClub.reputation>=70;
+  const eligible = standingsQualified || playerClub.tier==="grande" || playerClub.reputation>=70;
   let continentalCup = null;
   if(eligible){
     const continentPoolTeams = continentPool(playerClub.countryId).flatMap(cid=>clubsByCountry(cid)).filter(c=>c.tier!=="pequeno");
@@ -725,7 +769,7 @@ function resolveChoice(player, moment, choiceId, opponentQuality){
   const skillScore = attrAvg + riskPenalty + moraleBoost - opponentQuality/6 + rand(-12,12);
   const success = skillScore >= 48;
 
-  const goal = success && !!template.canScore && Math.random() < (option.risk==="alto"?0.5:0.32);
+  const goal = success && !!template.canScore && Math.random() < (option.risk==="alto"?0.72:0.58);
   const assist = success && !goal && !!template.canAssist && Math.random() < 0.28;
   const save = success && !!template.canSave && Math.random() < 0.65;
   const defense = success && !!template.canDefend && !goal && !assist && Math.random() < 0.55;
@@ -2443,13 +2487,20 @@ function MatchPage(){
         finalPlayer = callUp.player;
       }
 
-      const offers = evo.retirementSuggested ? [] : generateTransferOffers(finalPlayer, player.club);
+      // Classificação continental, promoção e rebaixamento — baseados na posição final na tabela.
+      let leagueOutcome = { position:null, totalTeams:null, divisionChanged:null, qualifiedForContinental:false };
+      if(!evo.retirementSuggested){
+        leagueOutcome = applyLeagueOutcome(finalPlayer, career.calendar, career.currentSeason);
+        finalPlayer = leagueOutcome.player;
+      }
+
+      const offers = evo.retirementSuggested ? [] : generateTransferOffers(finalPlayer, finalPlayer.club);
       setTransferOffers(offers);
 
-      const nextCalendar = evo.retirementSuggested ? career.calendar : buildCalendar(player.club);
+      const nextCalendar = evo.retirementSuggested ? career.calendar : buildCalendar(finalPlayer.club);
       let nextCup = career.cup, nextContinentalCup = career.continentalCup;
       if(!evo.retirementSuggested){
-        const built = buildSeasonCups(player.club);
+        const built = buildSeasonCups(finalPlayer.club, leagueOutcome.qualifiedForContinental);
         const totalLeagueWeeks = nextCalendar.rounds.length*2;
         nextCup = scheduleCupWeeks(built.cup, totalLeagueWeeks, 0);
         nextContinentalCup = built.continentalCup ? scheduleCupWeeks(built.continentalCup, totalLeagueWeeks, 4) : null;
@@ -2731,8 +2782,11 @@ function SeasonSummaryPage(){
   if(!lastSeason){ setScreen("dashboard"); return null; }
   const overallDelta = lastSeason.overallEnd - lastSeason.overallStart;
   const seasonAwards = career.player.achievements.filter(a=>a.season===lastSeason.season);
-  const lastMilestone = career.player.milestones[0];
-  const gotCallUp = lastMilestone && lastMilestone.tag==="seleção" && lastMilestone.season===lastSeason.season;
+  const seasonMilestones = career.player.milestones.filter(m=>m.season===lastSeason.season);
+  const callUpMilestone = seasonMilestones.find(m=>m.tag==="seleção");
+  const gotCallUp = !!callUpMilestone;
+  const divisionMilestone = seasonMilestones.find(m=>m.tag==="rebaixamento"||m.tag==="acesso");
+  const qualificationMilestone = seasonMilestones.find(m=>m.tag==="classificação");
 
   function acceptOffer(offer){
     const newClub = offer.club;
@@ -2768,7 +2822,7 @@ function SeasonSummaryPage(){
         </div>
         <p className="text-sm text-steel-400 mb-8">Valor de mercado estimado: <span className="text-steel-100 font-display">{lastSeason.marketValue.toLocaleString("pt-BR",{style:"currency",currency:"EUR",maximumFractionDigits:0})}</span></p>
 
-        {(seasonAwards.length>0 || gotCallUp) && (
+        {(seasonAwards.length>0 || gotCallUp || divisionMilestone || qualificationMilestone) && (
           <div className="text-left mb-8">
             <h3 className="font-display font-semibold text-steel-100 mb-3">Destaques da temporada</h3>
             <div className="grid gap-2">
@@ -2781,7 +2835,19 @@ function SeasonSummaryPage(){
               {gotCallUp && (
                 <div className="card p-3 border-l-2 border-touchline/60 flex items-center gap-3">
                   <span className="text-xl">🌍</span>
-                  <div><p className="font-display font-semibold text-steel-100 text-sm">Convocação para a seleção</p><p className="text-xs text-steel-400">{lastMilestone.text}</p></div>
+                  <div><p className="font-display font-semibold text-steel-100 text-sm">Convocação para a seleção</p><p className="text-xs text-steel-400">{callUpMilestone.text}</p></div>
+                </div>
+              )}
+              {divisionMilestone && (
+                <div className={`card p-3 border-l-2 flex items-center gap-3 ${divisionMilestone.tag==="acesso"?"border-state-up/60":"border-state-down/60"}`}>
+                  <span className="text-xl">{divisionMilestone.tag==="acesso"?"⬆️":"⬇️"}</span>
+                  <div><p className="font-display font-semibold text-steel-100 text-sm">{divisionMilestone.tag==="acesso"?"Acesso":"Rebaixamento"}</p><p className="text-xs text-steel-400">{divisionMilestone.text}</p></div>
+                </div>
+              )}
+              {qualificationMilestone && (
+                <div className="card p-3 border-l-2 border-crest-gold/60 flex items-center gap-3">
+                  <span className="text-xl">🎟️</span>
+                  <div><p className="font-display font-semibold text-steel-100 text-sm">Classificação continental</p><p className="text-xs text-steel-400">{qualificationMilestone.text}</p></div>
                 </div>
               )}
             </div>
