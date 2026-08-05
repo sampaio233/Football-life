@@ -357,6 +357,22 @@ function generateSquad(clubObj){
 }
 const COACH_PERSONALITIES = ["Calmo","Explosivo","Analítico","Inspirador","Frio","Exigente"];
 const FORMATIONS = ["4-3-3","4-4-2","4-2-3-1","3-5-2","4-1-4-1"];
+
+// Determina se o jogador é titular, banco (entra no 2º tempo) ou nem é relacionado nessa rodada —
+// comparando o overall (ajustado por confiança do treinador e moral) com a concorrência na posição.
+function determineMatchRole(player){
+  const samePos = (player.squad||[]).filter(t=>t.position===player.position);
+  if(samePos.length===0) return "titular";
+  const slot = SQUAD_TEMPLATE.find(s=>s.position===player.position);
+  const slotCount = slot ? slot.count : 2;
+  const startersNeeded = Math.max(1, Math.ceil(slotCount/2));
+  const formBonus = (player.coachTrust-50)/10 + (player.morale-50)/25;
+  const effectiveOverall = player.overall + formBonus;
+  const betterCount = samePos.filter(t=>t.overall > effectiveOverall).length;
+  if(betterCount < startersNeeded) return "titular";
+  if(betterCount < startersNeeded+2) return "banco";
+  return "fora";
+}
 function generateCoach(clubObj){
   const homeNat = COUNTRY_NATIONALITY[clubObj.countryId] || "Brasil";
   const nat = randomNationality(homeNat);
@@ -955,8 +971,12 @@ function resolveChoice(player, moment, choiceId, opponentQuality){
   const successTexts = ["Você executa a jogada com categoria — a torcida vibra!","Excelente decisão: a jogada funciona como planejado.","Você resolve bem a situação e o lance termina a seu favor."];
   const failTexts = ["A jogada não sai como esperado e a chance se perde.","Você erra o timing e a oportunidade escapa.","A pressão do adversário atrapalha o lance."];
   let text = pick(success?successTexts:failTexts);
-  if(goal) text = "GOL! A bola morre no fundo da rede e o estádio explode!";
-  else if(assist) text = "Assistência perfeita — seu companheiro só empurra para o gol!";
+  if(goal) text = `GOL! ${player.firstName} ${player.lastName} não perdoa e a bola morre no fundo da rede!`;
+  else if(assist){
+    const attackers = (player.squad||[]).filter(t=>["CA","SA","PD","PE","MEIA"].includes(t.position));
+    const receiver = pick(attackers.length>0?attackers:(player.squad||[{name:"seu companheiro"}]));
+    text = `Assistência perfeita de ${player.firstName}! ${receiver.name} só empurra para o gol!`;
+  }
   else if(save) text = "DEFESA! Você evita o gol certo com uma intervenção decisiva!";
   else if(defense) text = "Corte decisivo! Você tira o perigo com categoria.";
   if(card==="amarelo") text += " O árbitro mostra o cartão amarelo.";
@@ -985,20 +1005,23 @@ function computeSetPieceChance(player, kind, corner){
 function resolveSetPiece(player, kind, corner, opponentQuality){
   const { onTargetPct, profile } = computeSetPieceChance(player, kind, corner);
   const onTarget = Math.random()*100 < onTargetPct;
+  const sideWord = corner==="centro" ? "no meio do gol" : corner==="esquerdo" ? "no canto esquerdo" : "no canto direito";
   if(!onTarget){
     const missTexts = kind==="penalty"
-      ? ["Você chuta para fora! Grande chance perdida.", "A bola explode na trave e sai.", "Cobrança sai por cima do travessão."]
-      : ["A cobrança de falta sai por cima do gol.", "A barreira desvia a cobrança.", "O chute sai à margem do gol."];
+      ? [`Você chuta ${sideWord} e a bola vai por cima! Grande chance perdida.`, "A bola explode na trave e sai.", "Cobrança sai por cima do travessão."]
+      : [`A cobrança de falta sai por cima do gol, ${sideWord}.`, "A barreira desvia a cobrança.", "O chute sai à margem do gol."];
     return { success:false, goal:false, assist:false, text: pick(missTexts) };
   }
   const keeperSaveChance = Math.min(0.85, profile.keeperSaveChance * (opponentQuality/70));
   const saved = Math.random() < keeperSaveChance;
   if(saved){
-    return { success:false, goal:false, assist:false, text:"O goleiro adivinha o canto e faz a defesa!" };
+    const keeperDive = corner==="centro" ? "O goleiro fica parado no meio e agarra a bola!" : `O goleiro pula para o ${corner==="esquerdo"?"canto esquerdo":"canto direito"} e faz a defesa!`;
+    return { success:false, goal:false, assist:false, text: keeperDive };
   }
+  const keeperGuess = corner==="centro" ? "O goleiro se joga para um dos lados e não alcança!" : `O goleiro pula para o lado errado!`;
   const goalTexts = kind==="penalty"
-    ? ["GOL! Cobrança perfeita, sem chances para o goleiro!", "GOL! Frieza total na hora de decidir."]
-    : ["GOL DE FALTA! Que cobrança espetacular!", "GOL! A bola faz a curva por cima da barreira e morre no ângulo!"];
+    ? [`GOL de ${player.firstName} ${player.lastName}! Cobrança perfeita ${sideWord}, sem chances para o goleiro! ${keeperGuess}`, `GOL! Frieza total de ${player.firstName} na hora de decidir. ${keeperGuess}`]
+    : [`GOL DE FALTA de ${player.firstName} ${player.lastName}! Que cobrança espetacular ${sideWord}!`, `GOL! A cobrança de ${player.firstName} faz a curva e morre no ângulo. ${keeperGuess}`];
   return { success:true, goal:true, assist:false, text: pick(goalTexts) };
 }
 
@@ -1040,23 +1063,36 @@ function buildMatchResult(player, opponentClub, competition, isHome, moments, ou
 // ============================================================
 const AUTO_TICK_TEXTS = {
   opponentMiss: ["O adversário finaliza para fora.", "Defesa afasta o perigo na área.", "A zaga corta o cruzamento adversário.", "Chute cruza o gol e sai pela linha de fundo.", "O goleiro adversário fica com a bola tranquilamente."],
-  opponentGoal: ["GOL do adversário! A defesa não consegue afastar.", "GOL! O atacante adversário aproveita o rebote.", "GOL adversário em uma jogada de contra-ataque."],
+  opponentGoal: ["GOL do adversário! {scorer} não perdoa e a defesa não consegue afastar.", "GOL! {scorer} aproveita o rebote e marca para o adversário.", "GOL adversário! {scorer} decide em jogada de contra-ataque."],
   teamMiss: ["Seu companheiro chuta para fora.", "A jogada do seu time termina sem perigo.", "Cruzamento não encontra ninguém na área.", "O goleiro adversário faz uma boa defesa."],
-  teamGoal: ["GOL do seu time! A torcida vai à loucura.", "GOL! Grande jogada coletiva termina em gol.", "GOL do seu time em cobrança de escanteio."],
+  teamGoal: ["GOL do seu time! {scorer} marca e a torcida vai à loucura.", "GOL! Grande jogada coletiva termina com {scorer} balançando as redes.", "GOL do seu time! {scorer} aproveita a cobrança de escanteio."],
   neutral: ["Bola lateral para o seu time.", "Cobrança de falta sem perigo.", "O jogo fica truncado no meio-campo.", "Pequena pausa para atendimento a um jogador.", "Escanteio para o seu time, sem perigo."],
 };
 function generateAutoTick(minute, isOpponentChance){
   const kind = isOpponentChance ? "opponentMiss" : "teamMiss";
   return { minute, kind, text: pick(AUTO_TICK_TEXTS[kind]) };
 }
-function resolveAutoTick(tick, opponentQuality, teamQuality){
+function resolveAutoTick(tick, opponentQuality, teamQuality, teammateSquad, opponentClub){
   const isOpponent = !!tick.isOpponentChance;
   const chance = isOpponent ? opponentQuality/230 : teamQuality/230; // ~30-40% base
   const goal = Math.random() < chance;
   const missKind = isOpponent ? "opponentMiss" : "teamMiss";
   if(!goal) return { ...tick, kind:missKind, text: pick(AUTO_TICK_TEXTS[missKind]) };
   const goalKind = isOpponent ? "opponentGoal" : "teamGoal";
-  return { ...tick, kind: goalKind, text: pick(AUTO_TICK_TEXTS[goalKind]) };
+  let scorerName = "";
+  if(isOpponent){
+    const nat = (opponentClub && COUNTRY_NATIONALITY[opponentClub.countryId]) || "Brasil";
+    const { first, last } = generateFictionalName(nat);
+    scorerName = `${first} ${last}`;
+  } else if(teammateSquad && teammateSquad.length>0){
+    const attackers = teammateSquad.filter(t=>["CA","SA","PD","PE","MEIA","MC","VOL"].includes(t.position));
+    const scorer = pick(attackers.length>0 ? attackers : teammateSquad);
+    scorerName = scorer.name;
+  } else {
+    scorerName = "Seu companheiro";
+  }
+  const text = pick(AUTO_TICK_TEXTS[goalKind]).replace("{scorer}", scorerName);
+  return { ...tick, kind: goalKind, text, scorerName };
 }
 
 // ============================================================
@@ -2082,6 +2118,7 @@ function DashboardPage(){
   const [coachChat, setCoachChat] = useState(null);
   const [requestedOffers, setRequestedOffers] = useState(null);
   const [requestingTransfer, setRequestingTransfer] = useState(false);
+  const [showFullSquad, setShowFullSquad] = useState(false);
 
   useEffect(()=>{
     if(!career) return;
@@ -2104,6 +2141,7 @@ function DashboardPage(){
   const isMatchWeek = career.weekIndex % 2 === 1 && seasonProgress.matchesPlayed < seasonProgress.matchesTotal;
   const fixture = isMatchWeek ? findPlayerFixture(calendar, player.club.id, currentRoundIdx) : null;
   const isByeWeek = isMatchWeek && !fixture;
+  const matchRole = fixture ? determineMatchRole(player) : "titular";
   const domesticCupTie = (!isMatchWeek && career.cup && !career.cup.eliminated && !career.cup.champion && career.cup.scheduledWeeks.includes(career.weekIndex))
     ? findPlayerCupTie(career.cup) : null;
   const continentalCupTie = (!domesticCupTie && !isMatchWeek && career.continentalCup && !career.continentalCup.eliminated && !career.continentalCup.champion && career.continentalCup.scheduledWeeks.includes(career.weekIndex))
@@ -2122,8 +2160,20 @@ function DashboardPage(){
   }
 
   function goToMatch(){
-    setPendingMatch({ opponentClub: fixture.home.id===player.club.id ? fixture.away : fixture.home, isHome: fixture.home.id===player.club.id, competition: player.club.league });
+    setPendingMatch({ opponentClub: fixture.home.id===player.club.id ? fixture.away : fixture.home, isHome: fixture.home.id===player.club.id, competition: player.club.league, startsOnBench: matchRole==="banco" });
     setScreen("match");
+  }
+
+  function skipUnselectedMatch(){
+    const auto = autoResolveCurrentWeek();
+    const updatedPlayer = { ...player, morale: Math.max(0, player.morale-3) };
+    const nextSeasonProgress = { ...seasonProgress, matchesPlayed:seasonProgress.matchesPlayed+auto.matchesPlayedDelta };
+    if(auto.matchesPlayedDelta>0 && nextSeasonProgress.matchesPlayed>=nextSeasonProgress.matchesTotal){
+      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }, updatedPlayer, nextSeasonProgress);
+      setTransferOffers(transferOffers); setCareer(newCareer); setScreen(screen);
+      return;
+    }
+    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }));
   }
 
   function goToCupMatch(){
@@ -2381,8 +2431,19 @@ function DashboardPage(){
               <h2 className="font-display text-2xl font-semibold text-steel-100 mt-1 mb-1">
                 {fixture.home.id===player.club.id ? `${player.club.name} x ${fixture.away.name}` : `${fixture.home.name} x ${player.club.name}`}
               </h2>
-              <p className="text-sm text-steel-400 mb-5">{fixture.home.id===player.club.id ? "Jogo em casa" : "Jogo fora de casa"}. Sua energia atual é {Math.round(player.energy)}/100.</p>
-              <button className="btn-primary" onClick={goToMatch}>Ir para o jogo</button>
+              <p className="text-sm text-steel-400 mb-1">{fixture.home.id===player.club.id ? "Jogo em casa" : "Jogo fora de casa"}. Sua energia atual é {Math.round(player.energy)}/100.</p>
+              {matchRole==="titular" && <>
+                <p className="text-xs text-state-up mb-5">Você é titular nesta partida.</p>
+                <button className="btn-primary" onClick={goToMatch}>Ir para o jogo</button>
+              </>}
+              {matchRole==="banco" && <>
+                <p className="text-xs text-state-warn mb-5">O treinador escalou você no banco. Você deve entrar no segundo tempo, com menos chances de decidir a partida.</p>
+                <button className="btn-primary" onClick={goToMatch}>Acompanhar do banco</button>
+              </>}
+              {matchRole==="fora" && <>
+                <p className="text-xs text-state-down mb-5">Você não foi relacionado para esta partida — a concorrência na sua posição está forte demais agora.</p>
+                <button className="btn-primary" onClick={skipUnselectedMatch}>Avançar semana</button>
+              </>}
             </div>
           ) : isTrainingWeek ? (
             <div className="card p-6">
@@ -2438,12 +2499,15 @@ function DashboardPage(){
             </div>
           )}
           <div className="card p-4">
-            <h3 className="font-display font-semibold text-steel-100 mb-3">Elenco — {player.club.name}</h3>
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {player.squad.slice(0,8).map(tm=>(
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-display font-semibold text-steel-100">Elenco — {player.club.name}</h3>
+              <button className="text-xs text-touchline hover:underline" onClick={()=>setShowFullSquad(v=>!v)}>{showFullSquad?"Ver menos":`Ver todos (${player.squad.length})`}</button>
+            </div>
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {(showFullSquad ? player.squad : player.squad.slice(0,8)).map(tm=>(
                 <div key={tm.id} className="flex items-center justify-between text-xs">
                   <span className="text-steel-200">{tm.name}</span>
-                  <span className="text-steel-400">{POSITION_LABELS[tm.position]} · {tm.overall}</span>
+                  <span className="text-steel-400">{POSITION_LABELS[tm.position]} · {tm.overall}{showFullSquad?` · ${tm.status}`:""}</span>
                 </div>
               ))}
             </div>
@@ -2496,14 +2560,20 @@ function MatchPage(){
   const currentRoundIdx = Math.floor(career.weekIndex/2);
 
   const [timeline] = useState(()=>{
-    const decisionCount = rand(3,5);
+    const onBench = !!pendingMatch.startsOnBench;
+    const decisionCount = onBench ? rand(1,2) : rand(3,5);
     const moments = generateMatchMoments(player.position, decisionCount);
+    if(onBench){
+      // Entra no segundo tempo: as decisões só acontecem depois da sua entrada em campo.
+      moments.forEach(m=>{ m.minute = rand(58,88); });
+    }
     const tickCount = rand(4,6);
     const tickMinutes = new Set();
     while(tickMinutes.size<tickCount){ tickMinutes.add(rand(3,89)); }
     const ticks = [...tickMinutes].map(m=>({ minute:m, type:"tick", isOpponentChance: Math.random()<0.52 }));
     const decisionBeats = moments.map(m=>({ minute:m.minute, type:"decision", moment:m }));
-    const combined = [...decisionBeats, ...ticks, { minute:45, type:"halftime" }].sort((a,b)=>a.minute-b.minute);
+    const subBeat = onBench ? [{ minute:55, type:"substitution" }] : [];
+    const combined = [...decisionBeats, ...ticks, ...subBeat, { minute:45, type:"halftime" }].sort((a,b)=>a.minute-b.minute);
     return combined;
   });
   const [beatIndex, setBeatIndex] = useState(-1); // -1 = intro, ainda não começou
@@ -2570,8 +2640,15 @@ function MatchPage(){
       pushLog(45, "Fim de primeiro tempo.");
       return;
     }
+    if(beat.type==="substitution"){
+      pushLog(beat.minute, `Você entra em campo! O treinador faz a substituição aos ${beat.minute}'.`);
+      const next = beatIndex+1;
+      setBeatIndex(next);
+      playBeat(next);
+      return;
+    }
     if(beat.type==="tick"){
-      const resolved = resolveAutoTick(beat, opponentQuality, teamQuality);
+      const resolved = resolveAutoTick(beat, opponentQuality, teamQuality, player.squad, pendingMatch.opponentClub);
       const isGoal = resolved.kind==="opponentGoal" || resolved.kind==="teamGoal";
       if(isGoal && Math.random()<0.65){
         resolved.reaction = resolved.kind==="teamGoal" ? GOAL_REACTIONS_TEAM : GOAL_REACTIONS_CONCEDED;
@@ -2906,7 +2983,8 @@ function MatchPage(){
           {subPhase==="intro" && (
             <div className="card p-6 text-center">
               <p className="text-steel-300 mb-2">{pendingMatch.isHome?"Jogo em casa":"Jogo fora de casa"} contra o {pendingMatch.opponentClub.name}.</p>
-              <p className="text-xs text-steel-400 mb-6">Mando de campo: {pendingMatch.isHome?player.club.name:pendingMatch.opponentClub.name} · Competição: {pendingMatch.competition}</p>
+              <p className="text-xs text-steel-400 mb-2">Mando de campo: {pendingMatch.isHome?player.club.name:pendingMatch.opponentClub.name} · Competição: {pendingMatch.competition}</p>
+              {pendingMatch.startsOnBench && <p className="text-xs text-state-warn mb-4">Você começa no banco de reservas. Acompanhe o primeiro tempo até ser chamado.</p>}
               <button className="btn-primary" onClick={startMatch}>Começar a partida</button>
             </div>
           )}
