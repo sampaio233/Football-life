@@ -563,6 +563,53 @@ function applyLeagueOutcome(player, calendar, season){
   return { player:updated, position, totalTeams, divisionChanged, qualifiedForContinental };
 }
 
+// Fecha a temporada (evolução, prêmios, seleção, acesso/rebaixamento, novo calendário e copas).
+// Compartilhado entre a partida normal e os avanços automáticos de semana (lesão/suspensão),
+// para a temporada nunca ficar travada esperando uma partida que o jogador não pode disputar.
+function finishSeason(career, updatedPlayer, nextSeasonProgress){
+  const evo = applySeasonEvolution(updatedPlayer, nextSeasonProgress, career.currentCoach.trainingQuality);
+  const seasonRecord = { season:career.currentSeason, clubId:updatedPlayer.club.id, matches:nextSeasonProgress.matchesPlayed, goals:nextSeasonProgress.goals,
+    assists:nextSeasonProgress.assists, averageRating:Math.round((evo.averageRating||0)*10)/10, yellowCards:nextSeasonProgress.yellowCards,
+    redCards:nextSeasonProgress.redCards, injuries:nextSeasonProgress.injuriesThisSeason, titles:[], overallStart:nextSeasonProgress.overallAtStart,
+    overallEnd:evo.overallAfter, marketValue:Math.round(evo.overallAfter*40000*(evo.player.age<=23?1.4:1)) };
+  const seasonNews = newsFromSeasonEnd(evo.player, career.currentSeason, evo.overallAfter-evo.overallBefore);
+  let finalPlayer = { ...evo.player, seasons:[...evo.player.seasons, seasonRecord], newsLog:[seasonNews, ...evo.player.newsLog].slice(0,40) };
+
+  const awards = computeSeasonAwards(finalPlayer, seasonRecord, career.calendar);
+  if(awards.length>0){
+    finalPlayer = { ...finalPlayer, achievements:[...finalPlayer.achievements, ...awards.map(a=>({...a, season:career.currentSeason}))] };
+    awards.forEach(a=>{ finalPlayer = addMilestone(finalPlayer, `${a.title}: ${a.description}`, career.currentSeason, "prêmio"); });
+  }
+
+  if(!evo.retirementSuggested){
+    const callUp = checkNationalCallUp(finalPlayer, career.currentSeason);
+    finalPlayer = callUp.player;
+  }
+
+  let leagueOutcome = { position:null, totalTeams:null, divisionChanged:null, qualifiedForContinental:false };
+  if(!evo.retirementSuggested){
+    leagueOutcome = applyLeagueOutcome(finalPlayer, career.calendar, career.currentSeason);
+    finalPlayer = leagueOutcome.player;
+  }
+
+  const transferOffers = evo.retirementSuggested ? [] : generateTransferOffers(finalPlayer, finalPlayer.club);
+  const nextCalendar = evo.retirementSuggested ? career.calendar : buildCalendar(finalPlayer.club);
+  let nextCup = career.cup, nextContinentalCup = career.continentalCup;
+  if(!evo.retirementSuggested){
+    const built = buildSeasonCups(finalPlayer.club, leagueOutcome.qualifiedForContinental);
+    const totalLeagueWeeks = nextCalendar.rounds.length*2;
+    nextCup = scheduleCupWeeks(built.cup, totalLeagueWeeks, 0);
+    nextContinentalCup = built.continentalCup ? scheduleCupWeeks(built.continentalCup, totalLeagueWeeks, 4) : null;
+  }
+
+  const newCareer = { ...career, player:finalPlayer, weekIndex:0,
+    currentSeason: evo.retirementSuggested ? career.currentSeason : career.currentSeason+1,
+    seasonProgress:{ matchesPlayed:0, matchesTotal:nextCalendar.matchesTotal, goals:0, assists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:evo.overallAfter },
+    calendar: nextCalendar, cup:nextCup, continentalCup:nextContinentalCup, retired:evo.retirementSuggested, retirementReason:evo.retirementReason };
+
+  return { newCareer, screen: evo.retirementSuggested ? "retirement" : "season-summary", transferOffers };
+}
+
 function buildSeasonCups(playerClub, standingsQualified){
   const domesticPool = clubsByCountry(playerClub.countryId);
   let cup = buildCup(playerClub.countryId==="brasil"?"Copa do Brasil":"Copa Nacional", domesticPool, playerClub, 8);
@@ -897,6 +944,20 @@ function computeLeagueTopScorers(calendar, player, seasonGoalsSoFar, playerLiveG
   rows.push({ name:`${player.firstName} ${player.lastName}`, club:player.club.name, goals: playerGoalsTotal, isPlayer:true });
   return rows.sort((a,b)=>b.goals-a.goals).slice(0,8);
 }
+function computeLeagueTopAssists(calendar, player, seasonAssistsSoFar){
+  const roundsPlayed = Math.max(1, calendar.standings[player.club.id] ? calendar.standings[player.club.id].j : 1);
+  const rows = [];
+  Object.values(calendar.standings).forEach(s=>{
+    if(s.club.id===player.club.id) return;
+    const seed = s.club.id.split("").reduce((a,c)=>a+c.charCodeAt(0)*3,0);
+    const playmaker = generateFictionalName(COUNTRY_NATIONALITY[s.club.countryId]||"Brasil");
+    const rate = 0.22 + ((seed%35)/100) + (s.club.squadQuality-60)/220;
+    const assists = Math.max(0, Math.round(rate * roundsPlayed));
+    rows.push({ name:`${playmaker.first} ${playmaker.last}`, club:s.club.name, assists });
+  });
+  rows.push({ name:`${player.firstName} ${player.lastName}`, club:player.club.name, assists:(seasonAssistsSoFar||0), isPlayer:true });
+  return rows.sort((a,b)=>b.assists-a.assists).slice(0,8);
+}
 
 // ============================================================
 // EVOLUÇÃO DE FIM DE TEMPORADA — BALANCEADA
@@ -977,11 +1038,20 @@ function computeSeasonAwards(player, seasonRecord, calendar){
   const clubPosition = clubRow ? standings.indexOf(clubRow)+1 : null;
   const topScorersInLeague = computeLeagueTopScorers(calendar, player, 0, seasonRecord.goals);
   const isTopScorer = topScorersInLeague[0] && topScorersInLeague[0].isPlayer;
+  const topAssistsInLeague = computeLeagueTopAssists(calendar, player, seasonRecord.assists);
+  const isTopAssister = topAssistsInLeague[0] && topAssistsInLeague[0].isPlayer;
 
-  if(isTopScorer && seasonRecord.goals>=8) awards.push({ id:"artilheiro", title:"Artilheiro da competição", description:`${seasonRecord.goals} gols na temporada, o maior número da liga.` });
-  if(seasonRecord.averageRating>=7.8 && seasonRecord.matches>=8) awards.push({ id:"bola-de-ouro", title:"Bola de Ouro da temporada", description:`Eleito o melhor jogador da liga, com nota média ${seasonRecord.averageRating}.` });
-  else if(seasonRecord.averageRating>=7.2 && player.age<=21) awards.push({ id:"melhor-jovem", title:"Melhor jovem da competição", description:`Destaque entre os jogadores mais jovens da liga nesta temporada.` });
-  if(clubPosition===1) awards.push({ id:"campeao", title:"Campeão da temporada", description:`${player.club.name} terminou a temporada na liderança da tabela.` });
+  if(isTopScorer && seasonRecord.goals>=20){
+    awards.push({ id:"chuteira-platina", icon:"👢💎", title:"Chuteira de Platina — Artilheiro Mundial", description:`${seasonRecord.goals} gols na temporada, número de referência mundial no ${calendar.league}.` });
+  } else if(isTopScorer && seasonRecord.goals>=8){
+    awards.push({ id:"chuteira-ouro", icon:"👢🥇", title:`Chuteira de Ouro — ${calendar.league}`, description:`${seasonRecord.goals} gols na temporada, o maior número da competição.` });
+  }
+  if(isTopAssister && seasonRecord.assists>=6){
+    awards.push({ id:"garcom-ouro", icon:"🍽️🥇", title:`Garçom de Ouro — ${calendar.league}`, description:`${seasonRecord.assists} assistências na temporada, a maior marca da competição.` });
+  }
+  if(seasonRecord.averageRating>=7.8 && seasonRecord.matches>=8) awards.push({ id:"bola-de-ouro", icon:"⚽🥇", title:"Bola de Ouro da temporada", description:`Eleito o melhor jogador da liga, com nota média ${seasonRecord.averageRating}.` });
+  else if(seasonRecord.averageRating>=7.2 && player.age<=21) awards.push({ id:"melhor-jovem", icon:"🌟", title:"Melhor jovem da competição", description:`Destaque entre os jogadores mais jovens da liga nesta temporada.` });
+  if(clubPosition===1) awards.push({ id:"campeao", icon:"🏆", title:`Campeão do ${calendar.league}`, description:`${player.club.name} terminou a temporada na liderança da tabela.` });
   return awards;
 }
 
@@ -1893,9 +1963,9 @@ function DashboardPage(){
   const isMatchWeek = career.weekIndex % 2 === 1 && seasonProgress.matchesPlayed < seasonProgress.matchesTotal;
   const fixture = isMatchWeek ? findPlayerFixture(calendar, player.club.id, currentRoundIdx) : null;
   const isByeWeek = isMatchWeek && !fixture;
-  const domesticCupTie = (!isMatchWeek && !activeInjury && !isSuspended && career.cup && !career.cup.eliminated && !career.cup.champion && career.cup.scheduledWeeks.includes(career.weekIndex))
+  const domesticCupTie = (!isMatchWeek && career.cup && !career.cup.eliminated && !career.cup.champion && career.cup.scheduledWeeks.includes(career.weekIndex))
     ? findPlayerCupTie(career.cup) : null;
-  const continentalCupTie = (!domesticCupTie && !isMatchWeek && !activeInjury && !isSuspended && career.continentalCup && !career.continentalCup.eliminated && !career.continentalCup.champion && career.continentalCup.scheduledWeeks.includes(career.weekIndex))
+  const continentalCupTie = (!domesticCupTie && !isMatchWeek && career.continentalCup && !career.continentalCup.eliminated && !career.continentalCup.champion && career.continentalCup.scheduledWeeks.includes(career.weekIndex))
     ? findPlayerCupTie(career.continentalCup) : null;
   const cupTie = domesticCupTie || continentalCupTie;
   const cupKey = domesticCupTie ? "cup" : "continentalCup";
@@ -1955,24 +2025,51 @@ function DashboardPage(){
     setCoachChat(null);
   }
 
-  function advanceInjuryWeek(){
-    const updatedInjuries = player.injuries.map(i=> i.weeksRemaining>0 ? {...i, weeksRemaining:i.weeksRemaining-1} : i);
-    const updatedPlayer = { ...player, injuries:updatedInjuries, energy:Math.min(100, player.energy+15) };
-    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1 }));
-  }
-
-  function playThroughSuspension(){
-    // Time joga sem o atleta — simula a rodada inteira e apenas desconta a suspensão.
+  function autoResolveCurrentWeek(){
+    let matchesPlayedDelta = 0;
     if(fixture){
       const res = quickSimResult(fixture.home, fixture.away);
       applyResultToStandings(calendar.standings, fixture.home, fixture.away, res.homeGoals, res.awayGoals);
-    } else {
+      matchesPlayedDelta = 1;
+    } else if(isByeWeek){
       simulateRoundExceptClub(calendar, currentRoundIdx, player.club.id);
     }
+    let updatedCup = career.cup, updatedContinentalCup = career.continentalCup;
+    if(cupTie){
+      const res2 = quickSimResult(cupTie.home, cupTie.away);
+      const isDraw = res2.homeGoals===res2.awayGoals;
+      const wonNormally = cupTie.home.id===player.club.id ? res2.homeGoals>res2.awayGoals : res2.awayGoals>res2.homeGoals;
+      const playerWon = wonNormally || (isDraw && Math.random()<0.5);
+      const opponentClub = cupTie.home.id===player.club.id ? cupTie.away : cupTie.home;
+      const advanced = advanceCup(activeCup, playerWon, player.club, opponentClub);
+      if(cupKey==="cup") updatedCup = advanced; else updatedContinentalCup = advanced;
+    }
+    return { matchesPlayedDelta, calendar:{...calendar}, cup:updatedCup, continentalCup:updatedContinentalCup };
+  }
+
+  function advanceInjuryWeek(){
+    const auto = autoResolveCurrentWeek();
+    const updatedInjuries = player.injuries.map(i=> i.weeksRemaining>0 ? {...i, weeksRemaining:i.weeksRemaining-1} : i);
+    const updatedPlayer = { ...player, injuries:updatedInjuries, energy:Math.min(100, player.energy+15) };
+    const nextSeasonProgress = { ...seasonProgress, matchesPlayed:seasonProgress.matchesPlayed+auto.matchesPlayedDelta };
+    if(auto.matchesPlayedDelta>0 && nextSeasonProgress.matchesPlayed>=nextSeasonProgress.matchesTotal){
+      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }, updatedPlayer, nextSeasonProgress);
+      setTransferOffers(transferOffers); setCareer(newCareer); setScreen(screen);
+      return;
+    }
+    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }));
+  }
+
+  function playThroughSuspension(){
+    const auto = autoResolveCurrentWeek();
     const updatedPlayer = { ...player, suspendedMatches: Math.max(0, player.suspendedMatches-1), energy: Math.min(100, player.energy+10) };
-    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1,
-      seasonProgress: fixture ? {...c.seasonProgress, matchesPlayed:c.seasonProgress.matchesPlayed+1} : c.seasonProgress,
-      calendar:{...calendar} }));
+    const nextSeasonProgress = { ...seasonProgress, matchesPlayed:seasonProgress.matchesPlayed+auto.matchesPlayedDelta };
+    if(auto.matchesPlayedDelta>0 && nextSeasonProgress.matchesPlayed>=nextSeasonProgress.matchesTotal){
+      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }, updatedPlayer, nextSeasonProgress);
+      setTransferOffers(transferOffers); setCareer(newCareer); setScreen(screen);
+      return;
+    }
+    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }));
   }
 
   function handleExport(){ exportCareer(career); }
@@ -2466,51 +2563,10 @@ function MatchPage(){
     const seasonComplete = nextSeasonProgress.matchesPlayed >= nextSeasonProgress.matchesTotal;
 
     if(seasonComplete){
-      const evo = applySeasonEvolution(updatedPlayer, nextSeasonProgress, career.currentCoach.trainingQuality);
-      const seasonRecord = { season:career.currentSeason, clubId:player.club.id, matches:nextSeasonProgress.matchesPlayed, goals:nextSeasonProgress.goals,
-        assists:nextSeasonProgress.assists, averageRating:Math.round((evo.averageRating||0)*10)/10, yellowCards:nextSeasonProgress.yellowCards,
-        redCards:nextSeasonProgress.redCards, injuries:nextSeasonProgress.injuriesThisSeason, titles:[], overallStart:nextSeasonProgress.overallAtStart,
-        overallEnd:evo.overallAfter, marketValue:Math.round(evo.overallAfter*40000*(evo.player.age<=23?1.4:1)) };
-      const seasonNews = newsFromSeasonEnd(evo.player, career.currentSeason, evo.overallAfter-evo.overallBefore);
-      let finalPlayer = { ...evo.player, seasons:[...evo.player.seasons, seasonRecord], newsLog:[seasonNews, ...evo.player.newsLog].slice(0,40) };
-
-      // Prêmios de fim de temporada (Bola de Ouro, artilheiro, melhor jovem, campeão).
-      const awards = computeSeasonAwards(finalPlayer, seasonRecord, career.calendar);
-      if(awards.length>0){
-        finalPlayer = { ...finalPlayer, achievements:[...finalPlayer.achievements, ...awards.map(a=>({...a, season:career.currentSeason}))] };
-        awards.forEach(a=>{ finalPlayer = addMilestone(finalPlayer, `${a.title}: ${a.description}`, career.currentSeason, "prêmio"); });
-      }
-
-      // Convocação para a seleção nacional, se elegível.
-      if(!evo.retirementSuggested){
-        const callUp = checkNationalCallUp(finalPlayer, career.currentSeason);
-        finalPlayer = callUp.player;
-      }
-
-      // Classificação continental, promoção e rebaixamento — baseados na posição final na tabela.
-      let leagueOutcome = { position:null, totalTeams:null, divisionChanged:null, qualifiedForContinental:false };
-      if(!evo.retirementSuggested){
-        leagueOutcome = applyLeagueOutcome(finalPlayer, career.calendar, career.currentSeason);
-        finalPlayer = leagueOutcome.player;
-      }
-
-      const offers = evo.retirementSuggested ? [] : generateTransferOffers(finalPlayer, finalPlayer.club);
-      setTransferOffers(offers);
-
-      const nextCalendar = evo.retirementSuggested ? career.calendar : buildCalendar(finalPlayer.club);
-      let nextCup = career.cup, nextContinentalCup = career.continentalCup;
-      if(!evo.retirementSuggested){
-        const built = buildSeasonCups(finalPlayer.club, leagueOutcome.qualifiedForContinental);
-        const totalLeagueWeeks = nextCalendar.rounds.length*2;
-        nextCup = scheduleCupWeeks(built.cup, totalLeagueWeeks, 0);
-        nextContinentalCup = built.continentalCup ? scheduleCupWeeks(built.continentalCup, totalLeagueWeeks, 4) : null;
-      }
-
-      setCareer({ ...career, player:finalPlayer, weekIndex:0,
-        currentSeason: evo.retirementSuggested ? career.currentSeason : career.currentSeason+1,
-        seasonProgress:{ matchesPlayed:0, matchesTotal:nextCalendar.matchesTotal, goals:0, assists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:evo.overallAfter },
-        calendar: nextCalendar, cup:nextCup, continentalCup:nextContinentalCup, retired:evo.retirementSuggested, retirementReason:evo.retirementReason });
-      setScreen(evo.retirementSuggested ? "retirement" : "season-summary");
+      const { newCareer, screen, transferOffers } = finishSeason(career, updatedPlayer, nextSeasonProgress);
+      setTransferOffers(transferOffers);
+      setCareer(newCareer);
+      setScreen(screen);
     } else {
       setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:career.calendar });
       setScreen("dashboard");
@@ -2827,11 +2883,14 @@ function SeasonSummaryPage(){
             <h3 className="font-display font-semibold text-steel-100 mb-3">Destaques da temporada</h3>
             <div className="grid gap-2">
               {seasonAwards.map(a=>(
-                <div key={a.id} className="card p-3 border-l-2 border-crest-gold/60 flex items-center gap-3">
-                  <span className="text-xl">🏆</span>
+                <div key={a.id} className={`card p-3 border-l-2 flex items-center gap-3 ${a.id==="campeao"?"bg-crest-gold/5 border-crest-gold":"border-crest-gold/60"}`}>
+                  <span className="text-xl">{a.icon||"🏆"}</span>
                   <div><p className="font-display font-semibold text-steel-100 text-sm">{a.title}</p><p className="text-xs text-steel-400">{a.description}</p></div>
                 </div>
               ))}
+              {seasonAwards.some(a=>a.id==="campeao") && (
+                <div className="text-center py-2 text-2xl tracking-wide">🚀 🎉 🏆 🎉 🚀</div>
+              )}
               {gotCallUp && (
                 <div className="card p-3 border-l-2 border-touchline/60 flex items-center gap-3">
                   <span className="text-xl">🌍</span>
@@ -2912,7 +2971,7 @@ function RetirementPage(){
           <div className="card p-5 text-left mb-6">
             <h3 className="font-display font-semibold text-steel-100 mb-3">Prêmios da carreira</h3>
             <ul className="space-y-2 text-sm text-steel-300">
-              {player.achievements.map((a,i)=>(<li key={i} className="flex gap-2"><span>🏆</span><span>{a.title} — Temporada {a.season}</span></li>))}
+              {player.achievements.map((a,i)=>(<li key={i} className="flex gap-2"><span>{a.icon||"🏆"}</span><span>{a.title} — Temporada {a.season}</span></li>))}
             </ul>
           </div>
         )}
