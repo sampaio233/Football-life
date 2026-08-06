@@ -51,6 +51,17 @@
   @keyframes pulseDot { 0%,100%{opacity:.35;} 50%{opacity:1;} }
   .pulse-dot { animation: pulseDot 1s ease-in-out infinite; }
   @keyframes rollBar { 0%{background-position:0% 0;} 100%{background-position:200% 0;} }
+  @keyframes popIn { 0%{opacity:0; transform:scale(.85);} 60%{opacity:1; transform:scale(1.05);} 100%{opacity:1; transform:scale(1);} }
+  .pop-in { animation: popIn .45s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes shake { 0%,100%{transform:translateX(0);} 20%{transform:translateX(-4px);} 40%{transform:translateX(4px);} 60%{transform:translateX(-3px);} 80%{transform:translateX(3px);} }
+  .shake { animation: shake .4s ease-in-out; }
+  @keyframes countUp { from{opacity:.4; transform:translateY(3px);} to{opacity:1; transform:translateY(0);} }
+  .count-up { animation: countUp .35s ease-out; }
+  @keyframes ringPulse { 0%{box-shadow:0 0 0 0 rgba(21,95,209,.35);} 100%{box-shadow:0 0 0 14px rgba(21,95,209,0);} }
+  .ring-pulse { animation: ringPulse 1.1s ease-out infinite; }
+  .btn-primary, .btn-secondary { transition: background .15s, transform .12s, box-shadow .15s; }
+  .btn-primary:active, .btn-secondary:active { transform: scale(.97); }
+  .card { transition: transform .18s ease, box-shadow .18s ease; }
   ::-webkit-scrollbar { width:8px; height:8px; }
   ::-webkit-scrollbar-thumb { background:#C9D3C8; border-radius:4px; }
 </style>
@@ -699,11 +710,6 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
     awards.forEach(a=>{ finalPlayer = addMilestone(finalPlayer, `${a.title}: ${a.description}`, career.currentSeason, "prêmio"); });
   }
 
-  if(!evo.retirementSuggested){
-    const callUp = checkNationalCallUp(finalPlayer, career.currentSeason);
-    finalPlayer = callUp.player;
-  }
-
   let leagueOutcome = { position:null, totalTeams:null, divisionChanged:null, qualifiedForContinental:false };
   if(!evo.retirementSuggested){
     leagueOutcome = applyLeagueOutcome(finalPlayer, career.calendar, career.currentSeason);
@@ -713,17 +719,24 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
   const transferOffers = evo.retirementSuggested ? [] : generateTransferOffers(finalPlayer, finalPlayer.club);
   const nextCalendar = evo.retirementSuggested ? career.calendar : buildCalendar(finalPlayer.club, career.quickMode);
   let nextCup = career.cup, nextContinentalCup = career.continentalCup;
+  const totalLeagueWeeks = nextCalendar.rounds.length*2;
   if(!evo.retirementSuggested){
     const built = buildSeasonCups(finalPlayer.club, leagueOutcome.qualifiedForContinental);
-    const totalLeagueWeeks = nextCalendar.rounds.length*2;
     nextCup = scheduleCupWeeks(built.cup, totalLeagueWeeks, 0);
     nextContinentalCup = built.continentalCup ? scheduleContinentalWeeks(built.continentalCup, totalLeagueWeeks, 4) : null;
   }
 
+  let nextNationalTeam = career.nationalTeam || null;
+  if(!evo.retirementSuggested && (!nextNationalTeam || nextNationalTeam.matchesRemaining<=0)){
+    const callUp = checkNationalCallUp(finalPlayer, career.currentSeason, totalLeagueWeeks);
+    finalPlayer = callUp.player;
+    if(callUp.called) nextNationalTeam = callUp.nationalTeam;
+  }
+
   const newCareer = { ...career, player:finalPlayer, weekIndex:0,
     currentSeason: evo.retirementSuggested ? career.currentSeason : career.currentSeason+1,
-    seasonProgress:{ matchesPlayed:0, matchesTotal:nextCalendar.matchesTotal, goals:0, assists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:evo.overallAfter },
-    calendar: nextCalendar, cup:nextCup, continentalCup:nextContinentalCup, retired:evo.retirementSuggested, retirementReason:evo.retirementReason };
+    seasonProgress:{ matchesPlayed:0, matchesTotal:nextCalendar.matchesTotal, goals:0, assists:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:evo.overallAfter },
+    calendar: nextCalendar, cup:nextCup, continentalCup:nextContinentalCup, nationalTeam:nextNationalTeam, retired:evo.retirementSuggested, retirementReason:evo.retirementReason };
 
   return { newCareer, screen: evo.retirementSuggested ? "retirement" : "season-summary", transferOffers };
 }
@@ -732,50 +745,113 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
 // LIBERTADORES / COPA CONTINENTAL — fase de grupos + final
 // (versão reduzida do formato real: grupo de 4 times, os 2 melhores decidem o título)
 // ============================================================
+// Libertadores/Champions Continental "de verdade": 2 grupos de 4 times (turno único dentro do grupo),
+// os 2 primeiros de cada grupo avançam para as semifinais (ida e volta), depois final (jogo único).
 function buildContinentalCup(name, poolTeams, playerClub){
-  const others = poolTeams.filter(t=>t.id!==playerClub.id);
-  const shuffled = [...others].sort(()=>Math.random()-0.5).slice(0,3);
-  const group = [playerClub, ...shuffled].sort(()=>Math.random()-0.5);
-  const groupStandings = {};
-  group.forEach(t=>{ groupStandings[t.id] = { club:t, j:0,v:0,e:0,d:0,gp:0,gc:0,pts:0 }; });
-  const groupRounds = roundRobin(group);
-  return { name, phase:"groups", group, groupRounds, groupStandings, currentGroupRound:0,
-    playerClubId:playerClub.id, finalTie:null, eliminated:false, champion:null, scheduledWeeks:[] };
+  const others = poolTeams.filter(t=>t.id!==playerClub.id).sort(()=>Math.random()-0.5);
+  const chosen = others.slice(0, Math.min(7, others.length));
+  const groupA = [playerClub, ...chosen.slice(0,3)];
+  const groupB = chosen.slice(3,7);
+  const hasGroupB = groupB.length>=2;
+  const groupARounds = roundRobin(groupA);
+  const groupBRounds = hasGroupB ? roundRobin(groupB) : [];
+  const groupAStandings = {}; groupA.forEach(t=>{ groupAStandings[t.id]={club:t,j:0,v:0,e:0,d:0,gp:0,gc:0,pts:0}; });
+  const groupBStandings = {}; groupB.forEach(t=>{ groupBStandings[t.id]={club:t,j:0,v:0,e:0,d:0,gp:0,gc:0,pts:0}; });
+  return { name, phase:"groups", groupA, groupB, groupARounds, groupBRounds, groupAStandings, groupBStandings, hasGroupB,
+    currentGroupRound:0, playerClubId:playerClub.id, semis:null, finalTie:null, eliminated:false, champion:null, scheduledWeeks:[] };
+}
+function continentalGroupStandingsSorted(standings, teams){
+  return teams.map(t=>standings[t.id]).sort((a,b)=>(b.pts-a.pts)||((b.gp-b.gc)-(a.gp-a.gc))||(b.gp-a.gp));
 }
 function findPlayerContinentalTie(cup){
   if(!cup || cup.champion || cup.eliminated) return null;
   if(cup.phase==="groups"){
-    const round = cup.groupRounds[cup.currentGroupRound];
+    const round = cup.groupARounds[cup.currentGroupRound];
     if(!round) return null;
     return round.find(m=>m.home.id===cup.playerClubId||m.away.id===cup.playerClubId) || null;
+  }
+  if(cup.phase==="semis" && cup.semis){
+    const leg = cup.semis.legs.find(l=>!l.resolved && (l.home.id===cup.playerClubId||l.away.id===cup.playerClubId));
+    return leg || null;
   }
   if(cup.phase==="final" && cup.finalTie && !cup.finalTie.resolved) return cup.finalTie;
   return null;
 }
 function advanceContinentalCup(cup, playerWon, playerClub, opponentClub, homeGoals, awayGoals){
   if(cup.phase==="groups"){
-    const round = cup.groupRounds[cup.currentGroupRound].map(m=>{
+    const roundA = cup.groupARounds[cup.currentGroupRound].map(m=>{
       const isPlayerMatch = m.home.id===cup.playerClubId || m.away.id===cup.playerClubId;
-      if(isPlayerMatch){
-        applyResultToStandings(cup.groupStandings, m.home, m.away, homeGoals, awayGoals);
-      } else {
-        const res = quickSimResult(m.home, m.away);
-        applyResultToStandings(cup.groupStandings, m.home, m.away, res.homeGoals, res.awayGoals);
-      }
+      if(isPlayerMatch) applyResultToStandings(cup.groupAStandings, m.home, m.away, homeGoals, awayGoals);
+      else { const res=quickSimResult(m.home,m.away); applyResultToStandings(cup.groupAStandings, m.home, m.away, res.homeGoals, res.awayGoals); }
       return { ...m, resolved:true };
     });
-    const newGroupRounds = [...cup.groupRounds]; newGroupRounds[cup.currentGroupRound] = round;
+    const roundB = (cup.groupBRounds[cup.currentGroupRound]||[]).map(m=>{
+      const res = quickSimResult(m.home, m.away);
+      applyResultToStandings(cup.groupBStandings, m.home, m.away, res.homeGoals, res.awayGoals);
+      return { ...m, resolved:true };
+    });
+    const newGroupARounds = [...cup.groupARounds]; newGroupARounds[cup.currentGroupRound] = roundA;
+    const newGroupBRounds = [...cup.groupBRounds]; if(cup.groupBRounds[cup.currentGroupRound]) newGroupBRounds[cup.currentGroupRound] = roundB;
+    const maxRounds = Math.max(cup.groupARounds.length, cup.groupBRounds.length);
     const nextRound = cup.currentGroupRound+1;
-    if(nextRound < cup.groupRounds.length){
-      return { ...cup, groupRounds:newGroupRounds, currentGroupRound:nextRound };
+    if(nextRound < maxRounds){
+      return { ...cup, groupARounds:newGroupARounds, groupBRounds:newGroupBRounds, currentGroupRound:nextRound };
     }
-    const standingsSorted = cup.group.map(t=>cup.groupStandings[t.id]).sort((a,b)=>(b.pts-a.pts)||((b.gp-b.gc)-(a.gp-a.gc))||(b.gp-a.gp));
-    const top2 = standingsSorted.slice(0,2).map(r=>r.club);
-    const playerQualified = top2.some(t=>t.id===cup.playerClubId);
-    if(!playerQualified){
-      return { ...cup, groupRounds:newGroupRounds, phase:"done", eliminated:true };
+    const topA = continentalGroupStandingsSorted(cup.groupAStandings, cup.groupA).slice(0,2).map(r=>r.club);
+    const topB = cup.hasGroupB ? continentalGroupStandingsSorted(cup.groupBStandings, cup.groupB).slice(0,2).map(r=>r.club) : [];
+    const playerQualified = topA.some(t=>t.id===cup.playerClubId);
+    const base = { ...cup, groupARounds:newGroupARounds, groupBRounds:newGroupBRounds };
+    if(!playerQualified) return { ...base, phase:"done", eliminated:true };
+    if(topB.length<2){
+      // Sem grupo B disponível (país com poucos clubes cadastrados): vai direto pros 2 primeiros do grupo do jogador na final.
+      return { ...base, phase:"final", finalTie:{ home:topA[0], away:topA[1], resolved:false, winner:null } };
     }
-    return { ...cup, groupRounds:newGroupRounds, phase:"final", finalTie:{ home:top2[0], away:top2[1], resolved:false, winner:null } };
+    // Semifinais cruzadas: 1ºA x 2ºB (ida e volta) e 1ºB x 2ºA (ida e volta).
+    const semis = { legs:[
+      { tie:"semi1", leg:1, home:topA[0], away:topB[1], resolved:false, homeGoals:null, awayGoals:null },
+      { tie:"semi1", leg:2, home:topB[1], away:topA[0], resolved:false, homeGoals:null, awayGoals:null },
+      { tie:"semi2", leg:1, home:topB[0], away:topA[1], resolved:false, homeGoals:null, awayGoals:null },
+      { tie:"semi2", leg:2, home:topA[1], away:topB[0], resolved:false, homeGoals:null, awayGoals:null },
+    ]};
+    return { ...base, phase:"semis", semis };
+  }
+  if(cup.phase==="semis"){
+    const legIdx = cup.semis.legs.findIndex(l=>!l.resolved && (l.home.id===cup.playerClubId||l.away.id===cup.playerClubId));
+    const leg = cup.semis.legs[legIdx];
+    const newLegs = cup.semis.legs.map((l,i)=> i===legIdx ? { ...l, resolved:true, homeGoals, awayGoals } : l);
+    // Resolve automaticamente a outra semifinal (que não envolve o jogador) inteira, ida e volta, se ainda não resolvida.
+    const otherTie = leg.tie==="semi1" ? "semi2" : "semi1";
+    const finalLegs = newLegs.map(l=>{
+      if(l.tie===otherTie && !l.resolved){
+        const res = quickSimResult(l.home, l.away);
+        return { ...l, resolved:true, homeGoals:res.homeGoals, awayGoals:res.awayGoals };
+      }
+      return l;
+    });
+    const allResolved = finalLegs.every(l=>l.resolved);
+    if(!allResolved){
+      return { ...cup, semis:{ legs:finalLegs } };
+    }
+    // Placar agregado por confronto (soma dos dois jogos, considerando o mando de cada perna).
+    function aggregateWinner(tieName, teamX, teamY){
+      const legs = finalLegs.filter(l=>l.tie===tieName);
+      let goalsX=0, goalsY=0;
+      legs.forEach(l=>{
+        if(l.home.id===teamX.id){ goalsX+=l.homeGoals; goalsY+=l.awayGoals; }
+        else { goalsX+=l.awayGoals; goalsY+=l.homeGoals; }
+      });
+      if(goalsX===goalsY) return Math.random()<0.5?teamX:teamY; // empate no agregado, decide por pênaltis "de fora de campo"
+      return goalsX>goalsY ? teamX : teamY;
+    }
+    const semi1Teams = [finalLegs.find(l=>l.tie==="semi1").home, finalLegs.find(l=>l.tie==="semi1").away];
+    const semi2Teams = [finalLegs.find(l=>l.tie==="semi2").home, finalLegs.find(l=>l.tie==="semi2").away];
+    const finalist1 = aggregateWinner("semi1", semi1Teams[0], semi1Teams[1]);
+    const finalist2 = aggregateWinner("semi2", semi2Teams[0], semi2Teams[1]);
+    const playerAdvanced = finalist1.id===cup.playerClubId || finalist2.id===cup.playerClubId;
+    if(!playerAdvanced){
+      return { ...cup, semis:{ legs:finalLegs }, phase:"done", eliminated:true };
+    }
+    return { ...cup, semis:{ legs:finalLegs }, phase:"final", finalTie:{ home:finalist1, away:finalist2, resolved:false, winner:null } };
   }
   if(cup.phase==="final"){
     const winner = playerWon ? playerClub : opponentClub;
@@ -786,7 +862,7 @@ function advanceContinentalCup(cup, playerWon, playerClub, opponentClub, homeGoa
   return cup;
 }
 function scheduleContinentalWeeks(cup, totalLeagueWeeks, offset){
-  const eventsCount = cup.groupRounds.length + 1;
+  const eventsCount = cup.groupARounds.length + 2 + 1; // rodadas de grupo + 2 pernas de semifinal + final
   const weeks = [];
   for(let i=1;i<=eventsCount;i++){
     let w = Math.round((totalLeagueWeeks*i)/(eventsCount+1)) + (offset||0);
@@ -797,7 +873,12 @@ function scheduleContinentalWeeks(cup, totalLeagueWeeks, offset){
   return { ...cup, scheduledWeeks:weeks };
 }
 function continentalRoundLabel(cup){
-  if(cup.phase==="groups") return `Fase de grupos — rodada ${cup.currentGroupRound+1}/${cup.groupRounds.length}`;
+  if(cup.phase==="groups") return `Fase de grupos — rodada ${cup.currentGroupRound+1}/${cup.groupARounds.length}`;
+  if(cup.phase==="semis"){
+    const playerLegs = cup.semis.legs.filter(l=>l.home.id===cup.playerClubId||l.away.id===cup.playerClubId);
+    const resolvedCount = playerLegs.filter(l=>l.resolved).length;
+    return `Semifinal — jogo de ${resolvedCount===0?"ida":"volta"}`;
+  }
   if(cup.phase==="final") return "Final";
   return "";
 }
@@ -1321,29 +1402,37 @@ function applySeasonEvolution(playerIn, progress, coachTrainingQuality){
 // ============================================================
 // SELEÇÃO NACIONAL — convocações de fim de temporada
 // ============================================================
-function checkNationalCallUp(player, season){
-  if(player.age<18 || player.reputation.national<45) return { player, called:false };
-  const chance = Math.min(0.85, (player.reputation.national-40)/70 + (player.overall-65)/150);
-  if(Math.random() > chance) return { player, called:false };
+function generateNationalOpponent(playerNationality){
+  const pool = NATIONALITIES.filter(n=>n!==playerNationality && n!=="Holanda");
+  const nat = pick(pool);
+  const colorPairs = [["#0033A0","#FFFFFF"],["#C8102E","#FFFFFF"],["#006437","#FFD100"],["#000000","#FFD100"],["#FFFFFF","#0033A0"],["#8B1874","#FFFFFF"]];
+  const [primaryColor, secondaryColor] = pick(colorPairs);
+  return { id:`nt-${nat}-${Date.now()}`, name:`Seleção ${["Estados Unidos","Emirados Árabes"].includes(nat)?"dos "+nat:"da "+nat}`, primaryColor, secondaryColor,
+    squadQuality: rand(62,90), reputation: rand(62,90), tier:"grande", countryId:"internacional", league:"Seleções", crowdPressure:70, facilities:70, financialHealth:70, tradition:70, youthChance:30, coachStyle:"Tático", seasonObjective:"Amistoso internacional" };
+}
 
-  const matches = rand(2,3);
-  let goals = 0;
-  for(let i=0;i<matches;i++){
-    const perf = player.overall/100 + (Math.random()*0.3-0.15);
-    if(Math.random() < perf*0.35) goals++;
-  }
-  let updated = { ...player, caps:(player.caps||0)+matches, interGoals:(player.interGoals||0)+goals,
-    reputation:{...player.reputation, national:Math.min(100,player.reputation.national+6), international:Math.min(100,player.reputation.international+8)} };
-  const text = goals>0
-    ? `Convocado para a seleção, disputou ${matches} partidas e marcou ${goals} gol(s).`
-    : `Convocado para a seleção nacional, disputou ${matches} partidas pelo país.`;
-  updated = addMilestone(updated, text, season, "seleção");
+// Convocação para a seleção nacional — agenda partidas de verdade (jogáveis), não resolve sozinha.
+function checkNationalCallUp(player, season, totalLeagueWeeks){
+  if(player.age<18 || player.reputation.national<45) return { player, called:false, nationalTeam:null };
+  const chance = Math.min(0.85, (player.reputation.national-40)/70 + (player.overall-65)/150);
+  if(Math.random() > chance) return { player, called:false, nationalTeam:null };
+
+  const matchCount = rand(2,3);
+  let updated = addMilestone(player, `Convocado para a seleção nacional para a próxima Data Fifa.`, season, "seleção");
   const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
-    headline: `${updated.firstName} ${updated.lastName} é convocado para a seleção nacional`,
-    summary: goals>0 ? `Estreia com números importantes: ${goals} gol(s) em ${matches} jogos pelo país.` : `Chamada reconhece o bom momento do jovem atleta no clube.`,
+    headline: `${updated.firstName} ${updated.lastName} é convocado para a seleção nacional!`,
+    summary: `O jovem atleta vai disputar ${matchCount} amistosos internacionais representando o país.`,
     date:`Temporada ${season}`, impact:14, season };
   updated = { ...updated, newsLog:[news, ...updated.newsLog].slice(0,40) };
-  return { player:updated, called:true, matches, goals };
+
+  const weeks = [];
+  for(let i=1;i<=matchCount;i++){
+    let w = Math.round((totalLeagueWeeks*i)/(matchCount+1)) + 8; // deslocado das copas pra não colidir
+    if(w%2!==0) w+=1;
+    weeks.push(w);
+  }
+  const nationalTeam = { matchesTotal:matchCount, matchesRemaining:matchCount, scheduledWeeks:weeks };
+  return { player:updated, called:true, nationalTeam };
 }
 
 // ============================================================
@@ -1718,13 +1807,13 @@ function createNewCareer(form, clubObj, quickMode){
     relationships:{ coach:50, teammates:50, captain:40, board:40, fans:30, press:30, family:80, agent:50 },
     club:clubObj, clubHistory:[{ clubId:clubObj.id, clubName:clubObj.name, fromSeason:1 }],
     seasons:[], injuries:[], achievements:[], newsLog:[], coachTrust:50, squad,
-    suspendedMatches:0, milestones:[], caps:0, interGoals:0,
+    suspendedMatches:0, milestones:[], caps:0, interGoals:0, cupGoals:0, cupAssists:0,
   };
 
   return {
     version:"2.1.0", player, currentCoach:coach, currentSeason:1, weekIndex:0,
     currentDate:"Pré-temporada, Ano 1", calendarStage:"pre-temporada", quickMode: !!quickMode,
-    seasonProgress:{ matchesPlayed:0, matchesTotal:calendar.matchesTotal, goals:0, assists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:overall },
+    seasonProgress:{ matchesPlayed:0, matchesTotal:calendar.matchesTotal, goals:0, assists:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:overall },
     calendar, cup, continentalCup, pendingTransferOffers:[], importantDecisions:[], retired:false,
   };
 }
@@ -1743,7 +1832,7 @@ function OverallCircle({ value, delta, size=120, label="OVERALL" }){
           strokeDasharray={circumference} strokeDashoffset={offset} style={{transition:"stroke-dashoffset .7s ease-out"}} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="stat-num text-3xl leading-none" style={{color}}>{value}</span>
+        <span key={value} className="stat-num text-3xl leading-none count-up" style={{color}}>{value}</span>
         {typeof delta==="number" && delta!==0 && <span className={`text-xs font-mono mt-1 ${delta>0?"text-state-up":"text-state-down"}`}>{delta>0?"▲":"▼"} {Math.abs(delta).toFixed(1)}</span>}
         <span className="eyebrow mt-1 text-[10px]">{label}</span>
       </div>
@@ -2255,7 +2344,7 @@ const ATTR_TABS = ["Físicos","Técnicos","Mentais"];
 function MiniStat({ label, value }){
   const rounded = Math.round(value);
   const color = rounded>=70?"text-state-up":rounded>=40?"text-steel-100":"text-state-down";
-  return <div className="text-center"><p className={`stat-num text-lg ${color}`}>{rounded}</p><p className="text-[10px] text-steel-400 uppercase tracking-wide">{label}</p></div>;
+  return <div className="text-center"><p key={rounded} className={`stat-num text-lg ${color} count-up`}>{rounded}</p><p className="text-[10px] text-steel-400 uppercase tracking-wide">{label}</p></div>;
 }
 
 function CoachChatCard({ opener, onRespond }){
@@ -2331,7 +2420,8 @@ function DashboardPage(){
   const cupTie = domesticCupTie || continentalCupTie;
   const cupKey = domesticCupTie ? "cup" : "continentalCup";
   const activeCup = domesticCupTie ? career.cup : career.continentalCup;
-  const isTrainingWeek = !isMatchWeek && !activeInjury && !cupTie;
+  const nationalMatchDue = (!isMatchWeek && !cupTie && career.nationalTeam && career.nationalTeam.matchesRemaining>0 && career.nationalTeam.scheduledWeeks.includes(career.weekIndex));
+  const isTrainingWeek = !isMatchWeek && !activeInjury && !cupTie && !nationalMatchDue;
 
   function persist(updater){ setCareer(updater(career)); }
 
@@ -2398,6 +2488,12 @@ function DashboardPage(){
     setScreen("match");
   }
 
+  function goToNationalMatch(){
+    const opponent = generateNationalOpponent(player.nationality);
+    setPendingMatch({ opponentClub: opponent, isHome: Math.random()<0.5, competition:"Amistoso Internacional", isNational:true });
+    setScreen("match");
+  }
+
   function skipByeWeek(){
     simulateRoundExceptClub(calendar, currentRoundIdx, player.club.id);
     const updatedPlayer = payWeeklySalary(player);
@@ -2449,7 +2545,7 @@ function DashboardPage(){
         const wonNormally = cupTie.home.id===player.club.id ? res2.homeGoals>res2.awayGoals : res2.awayGoals>res2.homeGoals;
         const playerWon = wonNormally || (isDraw && Math.random()<0.5);
         updatedCup = advanceCup(activeCup, playerWon, player.club, opponentClub);
-      } else if(activeCup.phase==="groups"){
+      } else if(activeCup.phase==="groups" || activeCup.phase==="semis"){
         updatedContinentalCup = advanceContinentalCup(activeCup, false, player.club, opponentClub, res2.homeGoals, res2.awayGoals);
       } else {
         const isDraw = res2.homeGoals===res2.awayGoals;
@@ -2535,7 +2631,7 @@ function DashboardPage(){
     const newCup = scheduleCupWeeks(builtCups.cup, totalLeagueWeeks, 0);
     const newContinentalCup = builtCups.continentalCup ? scheduleContinentalWeeks(builtCups.continentalCup, totalLeagueWeeks, 4) : null;
     persist(c=>({ ...c, player:updatedPlayer, currentCoach:newCoach, calendar:newCalendar, cup:newCup, continentalCup:newContinentalCup, weekIndex:0,
-      seasonProgress:{ matchesPlayed:0, matchesTotal:newCalendar.matchesTotal, goals:0, assists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:player.overall } }));
+      seasonProgress:{ matchesPlayed:0, matchesTotal:newCalendar.matchesTotal, goals:0, assists:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:player.overall } }));
     setRequestedOffers(null);
     setRequestingTransfer(false);
   }
@@ -2605,7 +2701,7 @@ function DashboardPage(){
               </div>
               <div>
                 <p className="eyebrow text-[10px] mb-1">Carreira</p>
-                <p className="text-sm text-steel-200"><span className="stat-num text-steel-100">{careerGoals+seasonProgress.goals}</span> gols · <span className="stat-num text-steel-100">{careerAssists+seasonProgress.assists}</span> assistências · <span className="stat-num text-steel-100">{careerMatches+seasonProgress.matchesPlayed}</span> jogos</p>
+                <p className="text-sm text-steel-200"><span className="stat-num text-steel-100">{Math.max(player.totalCareerGoals||0, careerGoals+seasonProgress.goals)}</span> gols · <span className="stat-num text-steel-100">{Math.max(player.totalCareerAssists||0, careerAssists+seasonProgress.assists)}</span> assistências · <span className="stat-num text-steel-100">{Math.max(player.totalCareerMatches||0, careerMatches+seasonProgress.matchesPlayed)}</span> jogos</p>
               </div>
             </div>
           </div>
@@ -2635,6 +2731,13 @@ function DashboardPage(){
               <span className="eyebrow">Rodada livre</span>
               <h2 className="font-display text-xl font-semibold text-steel-100 mt-2 mb-4">Seu time folga nesta rodada do {calendar.league}.</h2>
               <button className="btn-primary" onClick={skipByeWeek}>Avançar semana</button>
+            </div>
+          ) : nationalMatchDue ? (
+            <div className="card p-6 bg-stadium-glow">
+              <span className="eyebrow">Data Fifa · Seleção Nacional</span>
+              <h2 className="font-display text-2xl font-semibold text-steel-100 mt-1 mb-1">Amistoso Internacional</h2>
+              <p className="text-sm text-steel-400 mb-5">Convocado pela seleção — {career.nationalTeam.matchesRemaining} jogo(s) restante(s) nesta Data Fifa.</p>
+              <button className="btn-primary" onClick={goToNationalMatch}>Ir para o jogo</button>
             </div>
           ) : cupTie ? (
             <div className="card p-6 bg-stadium-glow">
@@ -2843,6 +2946,8 @@ function MatchPage(){
   const [pendingResult, setPendingResult] = useState(null);
   const [pendingSetPiece, setPendingSetPiece] = useState(null);
   const [shootout, setShootout] = useState(null);
+  const [shootoutKickPhase, setShootoutKickPhase] = useState("ready"); // ready | rolling | revealed
+  const [lastKickText, setLastKickText] = useState(null);
   const [pressAnswered, setPressAnswered] = useState(false);
   const [showTopScorers, setShowTopScorers] = useState(false);
   const [reactionEffects, setReactionEffects] = useState([]);
@@ -2999,27 +3104,40 @@ function MatchPage(){
     }
     return { done:false, winnerSide:null };
   }
-  function applyShootoutResult(scored){
-    setShootout(prev=>{
-      const isHomeTurn = prev.turn==="home";
-      const homeKicks = isHomeTurn ? [...prev.homeKicks, scored] : prev.homeKicks;
-      const awayKicks = !isHomeTurn ? [...prev.awayKicks, scored] : prev.awayKicks;
-      const { done, winnerSide } = afterShootoutKick(homeKicks, awayKicks);
-      const nextTurn = homeKicks.length===awayKicks.length ? "home" : "away";
-      return { homeKicks, awayKicks, turn: done?prev.turn:nextTurn, done, winnerSide, lastScored:scored, lastSide:prev.turn };
-    });
+  function applyShootoutResult(scored, text){
+    setLastKickText(text);
+    setShootoutKickPhase("rolling");
+    window.setTimeout(()=>{
+      setShootout(prev=>{
+        const isHomeTurn = prev.turn==="home";
+        const homeKicks = isHomeTurn ? [...prev.homeKicks, scored] : prev.homeKicks;
+        const awayKicks = !isHomeTurn ? [...prev.awayKicks, scored] : prev.awayKicks;
+        const { done, winnerSide } = afterShootoutKick(homeKicks, awayKicks);
+        const nextTurn = homeKicks.length===awayKicks.length ? "home" : "away";
+        return { homeKicks, awayKicks, turn: done?prev.turn:nextTurn, done, winnerSide, lastScored:scored, lastSide:prev.turn };
+      });
+      setShootoutKickPhase("revealed");
+    }, 900);
+  }
+  function continueShootoutKick(){
+    setShootoutKickPhase("ready");
+    setLastKickText(null);
   }
   function startShootout(){
     setShootout({ homeKicks:[], awayKicks:[], turn:"home", done:false, winnerSide:null, lastScored:null, lastSide:null });
+    setShootoutKickPhase("ready");
     setSubPhase("penalties");
   }
   function takePlayerShootoutKick(corner){
     const outcome = resolveSetPiece(player, "penalty", corner, opponentQuality);
-    applyShootoutResult(outcome.goal);
+    applyShootoutResult(outcome.goal, outcome.text);
   }
   function takeOpponentShootoutKick(){
-    const scored = Math.random() < Math.min(0.92, 0.55 + opponentQuality/220);
-    applyShootoutResult(scored);
+    const scored = Math.random() < Math.min(0.82, 0.55 + opponentQuality/400);
+    const texts = scored
+      ? ["GOL! Cobrança perfeita, sem chances para o goleiro.", "GOL! Frieza total na cobrança."]
+      : ["Perdeu! A bola vai por cima do gol.", "Defendeu! Seu goleiro faz uma defesa espetacular!", "Perdeu! A bola bate na trave e sai."];
+    applyShootoutResult(scored, pick(texts));
   }
 
   function goToPress(){
@@ -3039,6 +3157,11 @@ function MatchPage(){
     const result = resultOverride || pendingResult;
     let updatedPlayer = JSON.parse(JSON.stringify(player));
     updatedPlayer = payWeeklySalary(updatedPlayer);
+    // Contador unificado — soma gols/assistências de QUALQUER competição (liga ou copa),
+    // pra "carreira" nunca deixar de contar um gol só porque foi fora do campeonato principal.
+    updatedPlayer.totalCareerGoals = (updatedPlayer.totalCareerGoals||0) + result.playerGoals;
+    updatedPlayer.totalCareerAssists = (updatedPlayer.totalCareerAssists||0) + result.playerAssists;
+    updatedPlayer.totalCareerMatches = (updatedPlayer.totalCareerMatches||0) + 1;
     updatedPlayer.energy = Math.round(Math.max(5, updatedPlayer.energy-15));
     updatedPlayer.morale = Math.round(Math.min(100, Math.max(0, updatedPlayer.morale + (result.rating-6)*4)));
     updatedPlayer.coachTrust = Math.round(Math.min(100, Math.max(0, updatedPlayer.coachTrust + (result.rating-6)*3)));
@@ -3119,7 +3242,31 @@ function MatchPage(){
     }
 
     // Partida de copa: mata-mata à parte, não mexe na tabela nem no contador de jogos da liga.
+    if(pendingMatch.isNational){
+      updatedPlayer.caps = (updatedPlayer.caps||0) + 1;
+      updatedPlayer.interGoals = (updatedPlayer.interGoals||0) + result.playerGoals;
+      updatedPlayer.reputation.national = Math.min(100, updatedPlayer.reputation.national + (result.playerGoals>0?4:1));
+      updatedPlayer.reputation.international = Math.min(100, updatedPlayer.reputation.international + (result.playerGoals>0?6:2));
+      const ntNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"internacional",
+        headline: result.playerGoals>0 ? `${player.firstName} marca pela seleção nacional!` : `${player.firstName} disputa mais um amistoso pela seleção`,
+        summary: result.playerGoals>0 ? `${result.playerGoals} gol(s) na vitória/empate contra a ${pendingMatch.opponentClub.name}.` : `Atuação discreta no amistoso contra a ${pendingMatch.opponentClub.name}.`,
+        date:`Temporada ${career.currentSeason}`, impact:result.playerGoals>0?12:4, season:career.currentSeason };
+      updatedPlayer.newsLog = [ntNews, ...updatedPlayer.newsLog].slice(0,40);
+      if(result.playerGoals>=2){
+        updatedPlayer = addMilestone(updatedPlayer, `Marcou ${result.playerGoals} gols em um amistoso pela seleção nacional.`, career.currentSeason, "seleção");
+      }
+      const remaining = Math.max(0, (career.nationalTeam?.matchesRemaining||1)-1);
+      const updatedNationalTeam = remaining>0 ? { ...career.nationalTeam, matchesRemaining:remaining } : null;
+      setLastMatchResult(result);
+      setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, nationalTeam:updatedNationalTeam });
+      setScreen("dashboard");
+      return;
+    }
+
     if(pendingMatch.isCup){
+      // Gols/assistências em copa não entram na tabela da liga, mas têm que contar na carreira do jogador.
+      updatedPlayer.cupGoals = (updatedPlayer.cupGoals||0) + result.playerGoals;
+      updatedPlayer.cupAssists = (updatedPlayer.cupAssists||0) + result.playerAssists;
       if(pendingMatch.cupKey==="cup"){
         const cup = career.cup;
         const isDraw = result.homeGoals===result.awayGoals;
@@ -3146,7 +3293,8 @@ function MatchPage(){
         }
         updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
         setLastMatchResult(result);
-        setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, cup:updatedCup });
+        setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, cup:updatedCup,
+          seasonProgress:{ ...career.seasonProgress, cupGoals:career.seasonProgress.cupGoals+result.playerGoals, cupAssists:career.seasonProgress.cupAssists+result.playerAssists } });
         setScreen("dashboard");
         return;
       }
@@ -3174,6 +3322,25 @@ function MatchPage(){
             headline:`${matchVerb} do ${player.club.name} na fase de grupos da ${cup.name}`,
             summary:`Resultado contra o ${result.opponentClub.name} mantém viva a briga por vaga na próxima fase.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?6:drewMatch?1:-4, season:career.currentSeason };
         }
+      } else if(cup.phase==="semis"){
+        updatedCup = advanceContinentalCup(cup, false, player.club, pendingMatch.opponentClub, result.homeGoals, result.awayGoals);
+        const wonMatch = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
+        const drewMatch = result.homeGoals===result.awayGoals;
+        const matchVerb = wonMatch ? "Vitória" : drewMatch ? "Empate" : "Derrota";
+        if(updatedCup.phase==="final"){
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+            headline:`${player.club.name} está na final da ${cup.name}!`,
+            summary:`Confronto de ida e volta contra o ${result.opponentClub.name} garante vaga na decisão.`, date:`Temporada ${career.currentSeason}`, impact:25, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Classificado para a final da ${cup.name}!`, career.currentSeason, "classificação");
+        } else if(updatedCup.eliminated){
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+            headline:`${player.club.name} cai nas semifinais da ${cup.name}`,
+            summary:`Eliminado no placar agregado contra o ${result.opponentClub.name}.`, date:`Temporada ${career.currentSeason}`, impact:-8, season:career.currentSeason };
+        } else {
+          cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
+            headline:`${matchVerb} do ${player.club.name} na semifinal da ${cup.name}`,
+            summary:`Primeiro jogo contra o ${result.opponentClub.name}; decisão fica para o jogo de volta.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?5:drewMatch?1:-3, season:career.currentSeason };
+        }
       } else {
         const isDraw = result.homeGoals===result.awayGoals;
         const wonNormally = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
@@ -3195,7 +3362,8 @@ function MatchPage(){
       }
       updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
       setLastMatchResult(result);
-      setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, continentalCup:updatedCup });
+      setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, continentalCup:updatedCup,
+        seasonProgress:{ ...career.seasonProgress, cupGoals:career.seasonProgress.cupGoals+result.playerGoals, cupAssists:career.seasonProgress.cupAssists+result.playerAssists } });
       setScreen("dashboard");
       return;
     }
@@ -3234,8 +3402,8 @@ function MatchPage(){
           <div className="card p-4 mb-4 relative overflow-hidden">
             {goalFlash && (
               <div className="absolute inset-0 flex items-center justify-center z-10 fade-in" style={{backgroundColor:goalFlash.color}}>
-                <div className="text-center">
-                  <p className="font-display text-4xl font-bold tracking-wide" style={{color:goalFlash.textColor}}>GOOOL!</p>
+                <div className="text-center pop-in">
+                  <p className="font-display text-5xl font-bold tracking-wide" style={{color:goalFlash.textColor}}>GOOOL!</p>
                   <p className="text-sm mt-1 opacity-90" style={{color:goalFlash.textColor}}>{goalFlash.name}</p>
                 </div>
               </div>
@@ -3244,7 +3412,7 @@ function MatchPage(){
               <TeamTag name={homeClub.name} color={homeClub.primaryColor} />
               <div className="text-center px-4">
                 <p className="text-[10px] text-steel-400 uppercase tracking-wide">{pendingMatch.competition}{!pendingMatch.isCup && ` · Rodada ${currentRoundIdx+1}`}</p>
-                <p className="font-display text-4xl font-bold text-steel-100 stat-num">{homeGoals} — {awayGoals}</p>
+                <p key={`${homeGoals}-${awayGoals}`} className="font-display text-4xl font-bold text-steel-100 stat-num count-up">{homeGoals} — {awayGoals}</p>
                 <p className={`font-display text-sm mt-1 ${subPhase==="rolling"?"text-touchline pulse-dot":"text-steel-400"}`}>{displayMinute}</p>
               </div>
               <TeamTag name={awayClub.name} color={awayClub.primaryColor} />
@@ -3389,13 +3557,27 @@ function MatchPage(){
               </h2>
               <p className="text-xs text-steel-400 mb-5">{homeClub.name} {shootout.homeKicks.map(k=>k?"●":"○").join(" ")} · {shootout.awayKicks.map(k=>k?"●":"○").join(" ")} {awayClub.name}</p>
 
-              {shootout.done ? (
+              {shootout.done && shootoutKickPhase==="ready" ? (
                 <>
                   <p className="font-display text-lg text-steel-100 mb-6">
                     {(shootout.winnerSide==="home")===pendingMatch.isHome ? "Você vence a disputa de pênaltis!" : "Vocês perdem a disputa de pênaltis."}
                   </p>
                   <button className="btn-primary" onClick={goToPress}>Continuar</button>
                 </>
+              ) : shootoutKickPhase==="rolling" ? (
+                <div className="py-6">
+                  <div className="flex items-center justify-center gap-2 mb-4">
+                    <span className="w-2.5 h-2.5 rounded-full bg-touchline pulse-dot" style={{animationDelay:"0s"}} />
+                    <span className="w-2.5 h-2.5 rounded-full bg-touchline pulse-dot" style={{animationDelay:".15s"}} />
+                    <span className="w-2.5 h-2.5 rounded-full bg-touchline pulse-dot" style={{animationDelay:".3s"}} />
+                  </div>
+                  <p className="text-steel-400 text-sm">A cobrança acontece...</p>
+                </div>
+              ) : shootoutKickPhase==="revealed" ? (
+                <div className={lastKickText && lastKickText.startsWith("GOL") ? "pop-in" : "shake"}>
+                  <p className={`font-display text-lg mb-6 ${lastKickText && lastKickText.startsWith("GOL")?"text-state-up":"text-steel-200"}`}>{lastKickText}</p>
+                  <button className="btn-primary" onClick={continueShootoutKick}>Continuar</button>
+                </div>
               ) : (shootout.turn==="home")===pendingMatch.isHome ? (
                 <div className="grid sm:grid-cols-3 gap-3">
                   {["esquerdo","centro","direito"].map(corner=>{
@@ -3587,7 +3769,7 @@ function SeasonSummaryPage(){
                 </div>
               ))}
               {seasonAwards.some(a=>a.id==="campeao") && (
-                <div className="text-center py-2 text-2xl tracking-wide">🚀 🎉 🏆 🎉 🚀</div>
+                <div className="text-center py-2 text-2xl tracking-wide pop-in">🚀 🎉 🏆 🎉 🚀</div>
               )}
               {gotCallUp && (
                 <div className="card p-3 border-l-2 border-touchline/60 flex items-center gap-3">
