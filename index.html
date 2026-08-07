@@ -455,8 +455,8 @@ function determineMatchRole(player){
   const slot = SQUAD_TEMPLATE.find(s=>s.position===player.position);
   const slotCount = slot ? slot.count : 2;
   const startersNeeded = Math.max(1, Math.ceil(slotCount/2));
-  const formBonus = (player.coachTrust-50)/10 + (player.morale-50)/25;
-  const effectiveOverall = player.overall + formBonus;
+  const confidenceBonus = (player.coachTrust-50)/10 + (player.morale-50)/25 + ((player.form==null?50:player.form)-50)/12;
+  const effectiveOverall = player.overall + confidenceBonus;
   const betterCount = samePos.filter(t=>t.overall > effectiveOverall).length;
   if(betterCount < startersNeeded) return "titular";
   if(betterCount < startersNeeded+2) return "banco";
@@ -555,9 +555,12 @@ function findPlayerFixture(calendar, playerClubId, roundIdx){
 function quickSimResult(home, away){
   const homeStrength = home.squadQuality*0.6 + home.reputation*0.4 + 6; // vantagem de mando
   const awayStrength = away.squadQuality*0.6 + away.reputation*0.4;
-  const diff = (homeStrength - awayStrength) / 12;
-  const homeGoals = Math.max(0, Math.round(rand(0,2) + diff*0.6 + (Math.random()<0.28?1:0)));
-  const awayGoals = Math.max(0, Math.round(rand(0,2) - diff*0.6 + (Math.random()<0.22?1:0)));
+  // Testado com 1000 simulações de temporada: divisor 12 deixava o campeonato quase 100%
+  // determinístico pro clube mais forte (zebra praticamente não existia). Suavizado pra permitir
+  // upsets de verdade, mantendo o favorito claramente favorecido no longo prazo.
+  const diff = (homeStrength - awayStrength) / 20;
+  const homeGoals = Math.max(0, Math.round(rand(0,3) + diff*0.5 + (Math.random()<0.30?1:0)));
+  const awayGoals = Math.max(0, Math.round(rand(0,3) - diff*0.5 + (Math.random()<0.26?1:0)));
   return { homeGoals, awayGoals };
 }
 
@@ -1016,6 +1019,12 @@ const SHOP_ITEMS = [
 // VIDA AMOROSA E FAMÍLIA
 // ============================================================
 const DATING_NAMES = ["Larissa","Camila","Beatriz","Juliana","Fernanda","Amanda","Isabela","Rafaela","Mariana","Gabriela"];
+const PARTNER_PROFESSIONS = ["Modelo","Advogada","Médica","Influenciadora digital","Empresária","Jornalista esportiva","Fisioterapeuta","Dentista","Arquiteta","Designer","Estudante de Medicina","Empresária de moda"];
+const PARTNER_PERSONALITIES = ["Extrovertida","Reservada","Ciumenta","Compreensiva","Ambiciosa","Caseira","Independente","Romântica"];
+function generatePartner(){
+  return { name:pick(DATING_NAMES), age:rand(18,32), profession:pick(PARTNER_PROFESSIONS), personality:pick(PARTNER_PERSONALITIES),
+    love:rand(50,65), trust:rand(55,70), attraction:rand(60,80), jealousy:rand(20,50), compatibility:rand(45,75), stability:rand(50,65), publicExposure:rand(10,30) };
+}
 const RELATIONSHIP_EVENTS = {
   solteiro: { question:"Em um evento, você conhece alguém interessante. O que faz?", options:[
     { id:"flirt", label:"Puxar assunto e trocar contato", moral:4, next:"namorando" },
@@ -1034,6 +1043,27 @@ const RELATIONSHIP_EVENTS = {
     { id:"not-now", label:"Não é a hora ainda", moral:0, next:"casado" },
   ]},
 };
+
+// Eventos de manutenção — acontecem de vez em quando enquanto você já está numa relação,
+// sem necessariamente avançar de fase. Mexem nos atributos do parceiro, não só no seu moral.
+const MAINTENANCE_EVENTS = [
+  { question:"Vocês têm uma noite tranquila em casa, só os dois.", options:[
+    { id:"present", label:"Estar totalmente presente, sem celular", partner:{love:5,trust:3,stability:2}, moral:3 },
+    { id:"distracted", label:"Passar boa parte checando o celular", partner:{love:-3,trust:-2}, moral:0 },
+  ]},
+  { question:"Uma notícia sobre sua vida pessoal vaza pra imprensa esportiva.", options:[
+    { id:"defend", label:"Se posicionar publicamente ao lado dela", partner:{trust:6,publicExposure:8}, moral:2 },
+    { id:"silent", label:"Não comentar nada publicamente", partner:{trust:-4,publicExposure:4}, moral:-1 },
+  ]},
+  { question:"Ela comenta que sente sua ausência por causa da rotina de jogos e viagens.", options:[
+    { id:"reassure", label:"Organizar um tempo só pros dois na próxima folga", partner:{love:4,stability:4}, moral:2 },
+    { id:"brush-off", label:"Dizer que é assim mesmo, faz parte da profissão", partner:{love:-5,stability:-5,jealousy:3}, moral:-2 },
+  ]},
+  { question:"Um post seu com outra pessoa nas redes gera ciúmes.", options:[
+    { id:"explain", label:"Explicar com calma o contexto", partner:{jealousy:-6,trust:4}, moral:1 },
+    { id:"annoyed", label:"Ficar irritado com a cobrança", partner:{jealousy:6,trust:-5,love:-3}, moral:-2 },
+  ]},
+];
 
 
 const TRAINING_OPTIONS = [
@@ -1062,6 +1092,26 @@ function payWeeklySalary(player){
   if(salary<=0) return player;
   return { ...player, money:(player.money||0)+salary, careerEarnings:(player.careerEarnings||0)+salary };
 }
+// ============================================================
+// FORMA — separada do atributo. Sobe e desce rápido com o desempenho recente
+// (últimos jogos), e regride sozinha em direção ao neutro (50) com o tempo.
+// Atributo é o teto de longo prazo; forma é o "momento" de curto prazo.
+// ============================================================
+function updateForm(currentForm, rating){
+  const base = currentForm==null ? 50 : currentForm;
+  const regressToMean = (50-base)*0.10; // sem jogar, a forma volta devagar pro neutro
+  const delta = (rating-6.3)*4.2;
+  return Math.max(5, Math.min(97, Math.round((base + regressToMean + delta)*10)/10));
+}
+function formLabel(form){
+  if(form==null) return { icon:"➖", label:"Normal" };
+  if(form<30) return { icon:"🔻", label:"Péssima" };
+  if(form<45) return { icon:"⚠️", label:"Má" };
+  if(form<62) return { icon:"➖", label:"Normal" };
+  if(form<80) return { icon:"✅", label:"Boa" };
+  return { icon:"🔥", label:"Excelente" };
+}
+
 function ageMultiplier(age){
   if(age<=18) return 1.35;
   if(age<=24) return 1.0;
@@ -1267,7 +1317,7 @@ function computeSuccessChance(player, moment, option, opponentQuality){
   const attrSum = option.usesAttributes.reduce((s,k)=>s+getAttr(player,k),0);
   const attrAvg = attrSum/option.usesAttributes.length;
   const riskPenalty = option.risk==="alto" ? -8 : option.risk==="médio" ? -2 : 4;
-  const moraleBoost = (player.morale-50)/10;
+  const moraleBoost = (player.morale-50)/10 + ((player.form==null?50:player.form)-50)/14;
   const base = attrAvg + riskPenalty + moraleBoost - opponentQuality/6;
   // O roll real soma ruído uniforme entre -12 e 12 e exige base+ruído>=48;
   // isso deriva a probabilidade analítica exata dessa distribuição uniforme.
@@ -1281,7 +1331,7 @@ function resolveChoice(player, moment, choiceId, opponentQuality){
   const attrSum = option.usesAttributes.reduce((s,k)=>s+getAttr(player,k),0);
   const attrAvg = attrSum/option.usesAttributes.length;
   const riskPenalty = option.risk==="alto" ? -8 : option.risk==="médio" ? -2 : 4;
-  const moraleBoost = (player.morale-50)/10;
+  const moraleBoost = (player.morale-50)/10 + ((player.form==null?50:player.form)-50)/14;
   const skillScore = attrAvg + riskPenalty + moraleBoost - opponentQuality/6 + rand(-12,12);
   const success = skillScore >= 48;
 
@@ -2195,6 +2245,10 @@ function importCareerFile(file){
       try {
         const parsed = JSON.parse(reader.result);
         if(!parsed.player || !parsed.currentSeason){ reject(new Error("Arquivo de carreira inválido.")); return; }
+        // Migração: saves antigos guardavam só o nome do parceiro (string). Reconstrói um parceiro completo.
+        if(parsed.player.partnerName && !parsed.player.partner){
+          parsed.player.partner = { ...generatePartner(), name: parsed.player.partnerName };
+        }
         resolve(parsed);
       } catch(e){ reject(new Error("Não foi possível ler o arquivo JSON.")); }
     };
@@ -2732,6 +2786,7 @@ function DashboardPage(){
   const [showShop, setShowShop] = useState(false);
   const [cupDetailsOpen, setCupDetailsOpen] = useState(null);
   const [relationshipEvent, setRelationshipEvent] = useState(null);
+  const [showBreakupMenu, setShowBreakupMenu] = useState(false);
 
   useEffect(()=>{
     if(!career) return;
@@ -2742,7 +2797,8 @@ function DashboardPage(){
     }
     if(!isMatchWeek && !activeInjury && !relationshipEvent && Math.random()<0.14){
       const status = career.player.relationshipStatus||"solteiro";
-      setRelationshipEvent(RELATIONSHIP_EVENTS[status]);
+      const useMaintenace = status!=="solteiro" && Math.random()<0.55;
+      setRelationshipEvent(useMaintenace ? { ...pick(MAINTENANCE_EVENTS), maintenance:true } : RELATIONSHIP_EVENTS[status]);
     }
     // eslint-disable-next-line
   }, [career && career.weekIndex]);
@@ -2780,17 +2836,26 @@ function DashboardPage(){
   }
 
   function respondRelationshipEvent(option){
+    if(relationshipEvent && relationshipEvent.maintenance){
+      let updatedPartner = { ...(player.partner||generatePartner()) };
+      Object.entries(option.partner||{}).forEach(([k,v])=>{ updatedPartner[k] = Math.max(0, Math.min(100, (updatedPartner[k]||50)+v)); });
+      const updatedPlayer = { ...player, partner:updatedPartner, morale: Math.min(100, Math.max(0, player.morale + option.moral)) };
+      persist(c=>({ ...c, player: updatedPlayer }));
+      setRelationshipEvent(null);
+      return;
+    }
     let updatedPlayer = { ...player, relationshipStatus: option.next, morale: Math.min(100, Math.max(0, player.morale + option.moral)) };
     if(option.id==="flirt"){
-      updatedPlayer.partnerName = pick(DATING_NAMES);
-      updatedPlayer = addMilestone(updatedPlayer, `Começou a namorar ${updatedPlayer.partnerName}.`, career.currentSeason, "vida pessoal");
+      const partner = generatePartner();
+      updatedPlayer.partner = partner;
+      updatedPlayer = addMilestone(updatedPlayer, `Começou a namorar ${partner.name}.`, career.currentSeason, "vida pessoal");
       const news = newsFromPersonalChoice(updatedPlayer, `Novo affair de ${player.firstName}`, true, career.currentSeason);
       updatedPlayer.newsLog = [news, ...updatedPlayer.newsLog].slice(0,40);
     } else if(option.id==="propose"){
-      updatedPlayer = addMilestone(updatedPlayer, `Ficou noivo de ${player.partnerName}.`, career.currentSeason, "vida pessoal");
+      updatedPlayer = addMilestone(updatedPlayer, `Ficou noivo de ${player.partner.name}.`, career.currentSeason, "vida pessoal");
     } else if(option.id==="marry"){
-      updatedPlayer = addMilestone(updatedPlayer, `Casou-se com ${player.partnerName}.`, career.currentSeason, "vida pessoal");
-      const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"programa", headline:`${player.firstName} ${player.lastName} se casa com ${player.partnerName}`,
+      updatedPlayer = addMilestone(updatedPlayer, `Casou-se com ${player.partner.name}.`, career.currentSeason, "vida pessoal");
+      const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"programa", headline:`${player.firstName} ${player.lastName} se casa com ${player.partner.name}`,
         summary:"Cerimônia reúne familiares, companheiros de time e amigos próximos.", date:`Temporada ${career.currentSeason}`, impact:10, season:career.currentSeason };
       updatedPlayer.newsLog = [news, ...updatedPlayer.newsLog].slice(0,40);
     } else if(option.child){
@@ -2800,6 +2865,18 @@ function DashboardPage(){
     }
     persist(c=>({ ...c, player: updatedPlayer }));
     setRelationshipEvent(null);
+  }
+
+  function breakupRelationship(reason){
+    const partnerName = player.partner ? player.partner.name : "seu(sua) parceiro(a)";
+    let updatedPlayer = { ...player, relationshipStatus:"solteiro", partner:null, morale: Math.max(0, player.morale-(reason==="traicao"?18:10)) };
+    const reasonText = { carreira:"a rotina da carreira", distancia:"a distância", confianca:"falta de confiança", discussao:"discussões constantes", outra:"o fim do amor", traicao:"uma traição que veio à tona" }[reason] || "incompatibilidade";
+    updatedPlayer = addMilestone(updatedPlayer, `Terminou com ${partnerName}, por ${reasonText}.`, career.currentSeason, "vida pessoal");
+    const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista", headline:`${player.firstName} ${player.lastName} e ${partnerName} terminam o relacionamento`,
+      summary:`Fontes próximas apontam ${reasonText} como motivo do fim.`, date:`Temporada ${career.currentSeason}`, impact:-6, season:career.currentSeason };
+    updatedPlayer.newsLog = [news, ...updatedPlayer.newsLog].slice(0,40);
+    persist(c=>({ ...c, player: updatedPlayer }));
+    setShowBreakupMenu(false);
   }
 
   function buyItem(item){
@@ -3034,6 +3111,10 @@ function DashboardPage(){
           </div>
           <div className="flex items-center gap-6 ml-auto">
             <OverallCircle value={player.overall} size={64} label="OVR" />
+            <div className="text-center">
+              <p className="stat-num text-lg">{formLabel(player.form).icon}</p>
+              <p className="text-[10px] text-steel-400 uppercase tracking-wide">{formLabel(player.form).label}</p>
+            </div>
             <MiniStat label="Moral" value={player.morale} />
             <MiniStat label="Energia" value={player.energy} />
             <MiniStat label="Confiança" value={player.coachTrust} />
@@ -3245,8 +3326,24 @@ function DashboardPage(){
               <div><p className="eyebrow text-[10px]">Saldo</p><p className="stat-num text-steel-100 text-base">€{Math.round(player.money).toLocaleString("pt-BR")}</p></div>
               <div><p className="eyebrow text-[10px]">Salário/semana</p><p className="stat-num text-steel-100 text-base">€{Math.round(player.weeklySalary||0).toLocaleString("pt-BR")}</p></div>
             </div>
-            {player.relationshipStatus && player.relationshipStatus!=="solteiro" && (
-              <p className="text-[11px] text-steel-400 mb-1">{player.relationshipStatus==="namorando"?`Namorando ${player.partnerName}`:player.relationshipStatus==="noivo"?`Noivo(a) de ${player.partnerName}`:`Casado(a) com ${player.partnerName}`}{player.children && player.children.length>0 ? ` · ${player.children.length} filho(s)` : ""}</p>
+            {player.relationshipStatus && player.relationshipStatus!=="solteiro" && player.partner && (
+              <div className="mb-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] text-steel-400">{player.relationshipStatus==="namorando"?`Namorando ${player.partner.name}`:player.relationshipStatus==="noivo"?`Noivo(a) de ${player.partner.name}`:`Casado(a) com ${player.partner.name}`}{player.children && player.children.length>0 ? ` · ${player.children.length} filho(s)` : ""}</p>
+                  <button className="text-[10px] text-state-down hover:underline shrink-0" onClick={()=>setShowBreakupMenu(v=>!v)}>Terminar</button>
+                </div>
+                <p className="text-[10px] text-steel-400">{player.partner.age} anos · {player.partner.profession} · {player.partner.personality}</p>
+                <div className="flex gap-2 mt-1 text-[10px] text-steel-400">
+                  <span>❤️ {player.partner.love}</span><span>🤝 {player.partner.trust}</span><span>😤 {player.partner.jealousy}</span>
+                </div>
+                {showBreakupMenu && (
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    {[["carreira","Carreira"],["distancia","Distância"],["confianca","Falta de confiança"],["discussao","Discussões"],["outra","Conheceu outra pessoa"]].map(([id,label])=>(
+                      <button key={id} onClick={()=>breakupRelationship(id)} className="text-[10px] px-2 py-1.5 rounded border border-pitch-700 bg-pitch-800 hover:border-state-down/60 text-steel-300">{label}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             {player.possessions && player.possessions.length>0 && (
               <p className="text-[11px] text-steel-400 mb-2">{player.possessions.length} bem(ns) adquirido(s)</p>
@@ -3737,6 +3834,7 @@ function MatchPage(){
     updatedPlayer.totalCareerGoals = (updatedPlayer.totalCareerGoals||0) + result.playerGoals;
     updatedPlayer.totalCareerAssists = (updatedPlayer.totalCareerAssists||0) + result.playerAssists;
     updatedPlayer.totalCareerMatches = (updatedPlayer.totalCareerMatches||0) + 1;
+    updatedPlayer.form = updateForm(updatedPlayer.form, result.rating);
     const minutesThisMatch = pendingMatch.startsOnBench ? Math.max(2, 90-(timeline.find(b=>b.type==="substitution")?.minute||58)) : 90;
     updatedPlayer.totalMinutes = (updatedPlayer.totalMinutes||0) + minutesThisMatch;
     if(player.position==="GOL"){
@@ -4217,7 +4315,23 @@ function MatchPage(){
           {subPhase==="fulltime" && (
             <div className="card p-6 text-center">
               <span className="eyebrow">Fim de jogo</span>
-              <h2 className="font-display text-2xl font-semibold text-steel-100 mt-2 mb-2">{homeClub.name} {homeGoals} — {awayGoals} {awayClub.name}</h2>
+              <h2 className="font-display text-2xl font-semibold text-steel-100 mt-2 mb-1">{homeClub.name} {homeGoals} — {awayGoals} {awayClub.name}</h2>
+              {(()=>{
+                const homeQ = pendingMatch.isHome ? teamQuality : opponentQuality;
+                const awayQ = pendingMatch.isHome ? opponentQuality : teamQuality;
+                const convHome = Math.max(0.10, Math.min(0.42, 0.26 + (homeQ-awayQ)/380));
+                const convAway = Math.max(0.10, Math.min(0.42, 0.26 + (awayQ-homeQ)/380));
+                const xgHome = Math.round(matchStats.shotsHome*convHome*100)/100;
+                const xgAway = Math.round(matchStats.shotsAway*convAway*100)/100;
+                const homeOverperform = homeGoals - xgHome;
+                const zebra = (homeOverperform>1.2 && homeGoals>awayGoals) || ((awayGoals-xgAway)>1.2 && awayGoals>homeGoals);
+                return (
+                  <div className="mb-2">
+                    <p className="text-xs text-steel-400 font-mono">{xgHome.toFixed(2)} xG — {xgAway.toFixed(2)} xG</p>
+                    {zebra && <p className="text-[11px] text-state-warn mt-1">⚡ Resultado surpreendente frente ao esperado pelo jogo criado.</p>}
+                  </div>
+                );
+              })()}
               {(() => {
                 const previewRating = computeMatchRating(outcomes);
                 const ratingColor = previewRating>=8?"text-crest-gold":previewRating>=6.5?"text-state-up":previewRating>=5?"text-steel-200":"text-state-down";
@@ -4634,6 +4748,118 @@ class ErrorBoundary extends React.Component {
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
+// ============================================================
+// TESTES — modo de balanceamento estatístico (não aparece pro usuário normal).
+// Ative pelo console do navegador: window.runBalanceTests()
+// Roda simulações estatísticas (não a carreira interativa inteira) pra checar
+// se os números do jogo (campeões, artilharia, evolução de OVR) fazem sentido.
+// ============================================================
+const BALANCE_TEST_MODE = false; // não muda nada em jogo normal — só habilita os testes no console
+
+function testLeagueChampions(n){
+  n = n || 1000;
+  const clubs = CLUBS.filter(c=>c.league==="Brasileirão Série A");
+  const tierCounts = {};
+  const strengths = [];
+  for(let i=0;i<n;i++){
+    const standings = {};
+    clubs.forEach(c=>{ standings[c.id] = { club:c, j:0,v:0,e:0,d:0,gp:0,gc:0,pts:0 }; });
+    const rounds = doubleRoundRobin(clubs);
+    rounds.forEach(round=>round.forEach(m=>{
+      const res = quickSimResult(m.home, m.away);
+      applyResultToStandings(standings, m.home, m.away, res.homeGoals, res.awayGoals);
+    }));
+    const sorted = Object.values(standings).sort((a,b)=>(b.pts-a.pts)||((b.gp-b.gc)-(a.gp-a.gc))||(b.gp-a.gp));
+    const champ = sorted[0].club;
+    tierCounts[champ.tier] = (tierCounts[champ.tier]||0)+1;
+    strengths.push(champ.squadQuality);
+  }
+  const avgStrength = strengths.reduce((a,b)=>a+b,0)/n;
+  return { n, tierCounts, tierPct: Object.fromEntries(Object.entries(tierCounts).map(([k,v])=>[k, (v/n*100).toFixed(1)+"%"])), avgChampionSquadQuality: Math.round(avgStrength*10)/10 };
+}
+
+function simulateAttackerSeasonGoals(finishing, composure){
+  let goals = 0;
+  const matches = rand(28,36);
+  for(let m=0;m<matches;m++){
+    const shots = rand(1,4);
+    for(let s=0;s<shots;s++){
+      const opponentQuality = rand(50,85);
+      const attrAvg = finishing*0.6 + composure*0.4;
+      const skillScore = attrAvg - 2 - opponentQuality/6 + (Math.random()*24-12);
+      if(skillScore>=48){
+        const convChance = Math.max(0.22, Math.min(0.82, 0.42 + (finishing-55)/180));
+        if(Math.random()<convChance) goals++;
+      }
+    }
+  }
+  return goals;
+}
+function testGoalDistribution(n, finishing){
+  n = n || 1000; finishing = finishing || 70;
+  const buckets = {"<20":0,"20-29":0,"30-39":0,"40-49":0,"50-59":0,"60+":0};
+  let total=0;
+  for(let i=0;i<n;i++){
+    const g = simulateAttackerSeasonGoals(finishing, 58);
+    total += g;
+    if(g<20) buckets["<20"]++; else if(g<30) buckets["20-29"]++; else if(g<40) buckets["30-39"]++;
+    else if(g<50) buckets["40-49"]++; else if(g<60) buckets["50-59"]++; else buckets["60+"]++;
+  }
+  return { n, finishing, avgGoals: Math.round(total/n*10)/10,
+    bucketsPct: Object.fromEntries(Object.entries(buckets).map(([k,v])=>[k, (v/n*100).toFixed(1)+"%"])) };
+}
+
+function testOvrProgression(n){
+  n = n || 1000;
+  const checkpointAges = [16,18,20,22,25,28,30,34];
+  const totals = {}; checkpointAges.forEach(a=>totals[a]=0);
+  const finalOveralls = [];
+  const positions = ["CA","MEIA","VOL","ZAG","GOL"];
+  for(let i=0;i<n;i++){
+    const position = pick(positions);
+    let attributes = generateInitialAttributes(position);
+    const hiddenPotential = generateHiddenPotential();
+    let player = { position, attributes, hiddenPotential, age:16, personalityTraits:[] };
+    player.overall = calculateOverall(position, attributes);
+    for(let age=16; age<=34; age++){
+      if(checkpointAges.includes(age)) totals[age] += player.overall;
+      for(let w=0; w<19; w++){
+        const opts = TRAINING_OPTIONS.filter(o=>o.boostKeys.length>0);
+        const opt = pick(opts);
+        player = applyTraining(player, 65, opt.id);
+      }
+      let ratingSum = 0;
+      for(let mtc=0; mtc<25; mtc++){
+        const rating = Math.max(2, Math.min(10, 6.2+(Math.random()*3.4-1.6)));
+        ratingSum += rating;
+        player = applyMatchAttributeProgress(player, rating, Object.keys(player.attributes.technical).slice(0,3));
+      }
+      const evo = applySeasonEvolution(player, { matchesPlayed:25, ratingSum }, 65);
+      player = evo.player;
+      if(evo.retirementSuggested) break;
+    }
+    finalOveralls.push(player.overall);
+  }
+  const avgByAge = {}; checkpointAges.forEach(a=>avgByAge[a] = Math.round(totals[a]/n*10)/10);
+  const thresholds = [80,85,90,95,99];
+  const pctReaching = {};
+  thresholds.forEach(t=>{ pctReaching[`${t}+`] = (finalOveralls.filter(o=>o>=t).length/n*100).toFixed(1)+"%"; });
+  return { n, avgOvrByAge:avgByAge, pctReaching };
+}
+
+function runBalanceTests(n){
+  n = n || 1000;
+  console.log(`Rodando testes de balanceamento (${n} simulações cada)...`);
+  const league = testLeagueChampions(n);
+  const goalsGoodAttacker = testGoalDistribution(n, 75);
+  const goalsEliteAttacker = testGoalDistribution(n, 88);
+  const ovr = testOvrProgression(Math.min(n,300)); // simulação de carreira inteira é mais pesada, usa amostra menor
+  const report = { campeoesDoBrasileirao:league, artilhariaAtacanteBom:goalsGoodAttacker, artilhariaAtacanteCraque:goalsEliteAttacker, evolucaoDeOVR:ovr };
+  console.log("RELATÓRIO DE BALANCEAMENTO", report);
+  return report;
+}
+if(typeof window!=="undefined") window.runBalanceTests = runBalanceTests;
+
 root.render(<ErrorBoundary><App /></ErrorBoundary>);
 </script>
 
