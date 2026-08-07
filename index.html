@@ -36,7 +36,9 @@
   body { background:#EEF2EE; font-family:'Inter',sans-serif; color:#0E1512; }
   h1,h2,h3,h4 { font-family:'Rajdhani',sans-serif; }
   ::selection { background: rgba(21,95,209,0.18); }
-  .card { background:#FFFFFF; border:1px solid rgba(15,25,18,0.07); border-radius:1rem; box-shadow:0 1px 0 0 rgba(255,255,255,0.7) inset, 0 12px 28px -14px rgba(15,25,18,0.18); }
+  .card { background:#FFFFFF; border:1px solid rgba(15,25,18,0.07); border-radius:1rem; box-shadow:0 1px 0 0 rgba(255,255,255,0.7) inset, 0 14px 32px -14px rgba(15,25,18,0.22), 0 2px 6px -2px rgba(15,25,18,0.08); }
+  .card:hover { box-shadow:0 1px 0 0 rgba(255,255,255,0.7) inset, 0 18px 36px -14px rgba(15,25,18,0.26), 0 3px 8px -2px rgba(15,25,18,0.1); }
+  body { background: radial-gradient(1200px 500px at 15% -5%, rgba(21,95,209,0.05), transparent 60%), radial-gradient(1000px 600px at 100% 10%, rgba(15,157,81,0.05), transparent 55%), #EEF2EE; background-attachment: fixed; }
   .stat-num { font-family:'Rajdhani',sans-serif; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-0.01em; }
   .btn-primary { background:#155FD1; color:#fff; font-family:'Rajdhani',sans-serif; font-weight:600; letter-spacing:.02em; text-transform:uppercase; font-size:.875rem; padding:.75rem 1.5rem; border-radius:.65rem; transition:background .15s, transform .15s; box-shadow:0 6px 16px -6px rgba(21,95,209,0.5); }
   .btn-primary:hover { background:#0F4CAE; transform:translateY(-1px); }
@@ -3081,9 +3083,9 @@ function DashboardPage(){
         </div>
 
         <div className="space-y-6">
-          <div className="card p-4">
+          <div className="card p-4 border-l-[3px]" style={{borderLeftColor:"#B8892E"}}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-display font-semibold text-steel-100">Patrimônio</h3>
+              <h3 className="font-display font-semibold text-steel-100">💰 Patrimônio</h3>
               <button className="text-xs text-touchline hover:underline" onClick={()=>setShowShop(v=>!v)}>{showShop?"Fechar loja":"Ver loja"}</button>
             </div>
             <div className="grid grid-cols-2 gap-3 text-xs mb-2">
@@ -3158,9 +3160,9 @@ function DashboardPage(){
               </div>
             </div>
           )}
-          <div className="card p-4">
+          <div className="card p-4 border-l-[3px]" style={{borderLeftColor:clubPrimary}}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-display font-semibold text-steel-100">Elenco — {player.club.name}</h3>
+              <h3 className="font-display font-semibold text-steel-100">👥 Elenco — {player.club.name}</h3>
               <button className="text-xs text-touchline hover:underline" onClick={()=>setShowFullSquad(v=>!v)}>{showFullSquad?"Ver menos":`Ver todos (${player.squad.length})`}</button>
             </div>
             <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
@@ -3173,8 +3175,8 @@ function DashboardPage(){
             </div>
           </div>
           {player.milestones && player.milestones.length>0 && (
-            <div className="card p-4">
-              <h3 className="font-display font-semibold text-steel-100 mb-3">Marcos da carreira</h3>
+            <div className="card p-4 border-l-[3px]" style={{borderLeftColor:clubPrimary}}>
+              <h3 className="font-display font-semibold text-steel-100 mb-3">📌 Marcos da carreira</h3>
               <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
                 {player.milestones.slice(0,6).map(m=>(
                   <div key={m.id} className="flex gap-2 text-xs">
@@ -3186,7 +3188,7 @@ function DashboardPage(){
             </div>
           )}
           <div>
-            <h3 className="font-display font-semibold text-steel-100 mb-3">Notícias</h3>
+            <h3 className="font-display font-semibold text-steel-100 mb-3">📰 Notícias</h3>
             <div className="space-y-3">
               {(showAllNews ? player.newsLog : player.newsLog.slice(0,4)).map(item=> <NewsCard key={item.id} item={item} />)}
               {player.newsLog.length===0 && <p className="text-xs text-steel-400">Nenhuma notícia ainda nesta carreira.</p>}
@@ -3204,11 +3206,26 @@ function DashboardPage(){
 // ============================================================
 function attrLabelMatch(key){ return ATTR_LABELS[key] ? ATTR_LABELS[key].toLowerCase() : key; }
 
-function FormationPitch({ club, isPlayerTeam, playerPosition, squad, flip }){
+function FormationPitch({ club, isPlayerTeam, playerPosition, squad, flip, compact, ballEvent }){
   const positions = Object.keys(POSITION_COORDS);
   const usedNames = new Set();
+  const [ballPos, setBallPos] = useState(null);
+  useEffect(()=>{
+    if(!ballEvent) return;
+    setBallPos({ top:"50%", left:"50%" });
+    const t1 = window.setTimeout(()=>{
+      const goalTop = flip ? "9%" : "91%";
+      const missSide = Math.random()<0.5 ? "14%" : "86%";
+      const targetLeft = ballEvent.kind==="goal" ? "50%" : ballEvent.kind==="save" ? "50%" : missSide;
+      const targetTop = ballEvent.kind==="save" ? (flip?"22%":"78%") : goalTop;
+      setBallPos({ top:targetTop, left:targetLeft });
+    }, 40);
+    const t2 = window.setTimeout(()=>setBallPos(null), 950);
+    return ()=>{ window.clearTimeout(t1); window.clearTimeout(t2); };
+    // eslint-disable-next-line
+  }, [ballEvent && ballEvent.id]);
   return (
-    <div className="relative rounded-lg overflow-hidden shadow-inner" style={{background:"linear-gradient(180deg, #1c7a3f 0%, #146334 100%)", aspectRatio:"0.72"}}>
+    <div className="relative rounded-lg overflow-hidden shadow-inner" style={{background:"linear-gradient(180deg, #1c7a3f 0%, #146334 100%)", aspectRatio: compact?"1.35":"0.85", transition:"aspect-ratio .35s ease"}}>
       <div className="absolute inset-0" style={{backgroundImage:"repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 15%, rgba(0,0,0,0.02) 15% 30%)"}} />
       <div className="absolute inset-2 border border-white/20 rounded-sm" />
       <div className="absolute left-1/2 top-1/2 w-12 h-12 -ml-6 -mt-6 border border-white/20 rounded-full" />
@@ -3232,6 +3249,9 @@ function FormationPitch({ club, isPlayerTeam, playerPosition, squad, flip }){
           </div>
         );
       })}
+      {ballPos && (
+        <div className="absolute w-2.5 h-2.5 rounded-full bg-white shadow-md z-10" style={{top:ballPos.top, left:ballPos.left, transform:"translate(-50%,-50%)", transition:"top .55s cubic-bezier(.25,.6,.3,1), left .55s cubic-bezier(.25,.6,.3,1)", boxShadow:"0 0 6px rgba(255,255,255,0.7)"}} />
+      )}
       <div className="absolute top-1 left-1.5 text-[9px] text-white/70 font-mono">{club.name.split(" ").slice(0,2).join(" ")}</div>
     </div>
   );
@@ -3308,6 +3328,10 @@ function MatchPage(){
   const [homeGoals, setHomeGoals] = useState(0);
   const [awayGoals, setAwayGoals] = useState(0);
   const [matchStats, setMatchStats] = useState({ possession:50, shotsHome:0, shotsAway:0, cornersHome:0, cornersAway:0, foulsHome:0, foulsAway:0 });
+  const [ballAnim, setBallAnim] = useState(null);
+  function fireBallAnim(isHomeSide, kind){
+    setBallAnim({ id:Date.now()+Math.random(), side: isHomeSide?"home":"away", kind });
+  }
   const [goalFlash, setGoalFlash] = useState(null);
   const [crowdLine, setCrowdLine] = useState(null);
   const [otherGames, setOtherGames] = useState(()=> buildLiveOtherGames(career.calendar, currentRoundIdx, player.club.id));
@@ -3383,6 +3407,9 @@ function MatchPage(){
       if(isGoal) registerGoal(resolved.kind==="teamGoal");
       if(resolved.kind==="teamGoal" && resolved.scorerId){ setTeammateGoalEvents(prev=>[...prev, resolved.scorerId]); }
       pushLog(beat.minute, resolved.text);
+      const tickIsTeamEvent = resolved.kind==="teamGoal" || resolved.kind==="teamMiss";
+      const tickIsHomeSide = tickIsTeamEvent ? pendingMatch.isHome : !pendingMatch.isHome;
+      fireBallAnim(tickIsHomeSide, isGoal ? "goal" : (Math.random()<0.5?"save":"miss"));
       setMatchStats(prev=>{
         const teamSide = pendingMatch.isHome ? "Home" : "Away";
         const oppSide = pendingMatch.isHome ? "Away" : "Home";
@@ -3451,6 +3478,9 @@ function MatchPage(){
       setOutcomes(prev=>[...prev, outcome]);
       if(outcome.goal || outcome.assist) registerGoal(true); // assistência também é gol do seu time
       if(outcome.assist && outcome.receiverId){ setTeammateGoalEvents(prev=>[...prev, outcome.receiverId]); }
+      if(outcome.goal || outcome.save || outcome.defense || (beat.moment._template.canScore && Math.random()<0.7)){
+        fireBallAnim(pendingMatch.isHome, outcome.goal ? "goal" : (Math.random()<0.5?"save":"miss"));
+      }
       setMatchStats(prev=>{
         const side = pendingMatch.isHome ? "Home" : "Away";
         const next = { ...prev };
@@ -3481,6 +3511,7 @@ function MatchPage(){
       setOutcomes(prev=>[...prev, outcome]);
       if(outcome.goal) registerGoal(true);
       pushLog(beat.minute, outcome.text);
+      fireBallAnim(pendingMatch.isHome, outcome.goal ? "goal" : (Math.random()<0.5?"save":"miss"));
       setCrowdLine(crowdReaction(outcome.success, true));
       setSubPhase("resolved");
     }, 900);
@@ -3895,15 +3926,18 @@ function MatchPage(){
             </div>
           </div>
 
-          {!["intro","fulltime","press"].includes(subPhase) && (
-            <div className="card p-4 mb-4">
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <FormationPitch club={homeClub} isPlayerTeam={pendingMatch.isHome} playerPosition={player.position} squad={pendingMatch.isHome?player.squad:null} flip={false} />
-                <FormationPitch club={awayClub} isPlayerTeam={!pendingMatch.isHome} playerPosition={player.position} squad={!pendingMatch.isHome?player.squad:null} flip={true} />
+          {!["intro","fulltime","press"].includes(subPhase) && (()=>{
+            const isDecisionPhase = ["choose","corner-choice","resolved","penalties"].includes(subPhase);
+            return (
+              <div className={`card mb-4 transition-all ${isDecisionPhase?"p-2.5":"p-4"}`}>
+                <div className={`grid grid-cols-2 gap-2.5 ${isDecisionPhase?"mb-2.5":"mb-4"}`}>
+                  <FormationPitch club={homeClub} isPlayerTeam={pendingMatch.isHome} playerPosition={player.position} squad={pendingMatch.isHome?player.squad:null} flip={false} compact={isDecisionPhase} ballEvent={ballAnim && ballAnim.side==="home" ? ballAnim : null} />
+                  <FormationPitch club={awayClub} isPlayerTeam={!pendingMatch.isHome} playerPosition={player.position} squad={!pendingMatch.isHome?player.squad:null} flip={true} compact={isDecisionPhase} ballEvent={ballAnim && ballAnim.side==="away" ? ballAnim : null} />
+                </div>
+                {!isDecisionPhase && <MatchStatsBar stats={matchStats} homeClub={homeClub} awayClub={awayClub} />}
               </div>
-              <MatchStatsBar stats={matchStats} homeClub={homeClub} awayClub={awayClub} />
-            </div>
-          )}
+            );
+          })()}
 
           {subPhase==="intro" && (
             <div className="card p-6 text-center">
