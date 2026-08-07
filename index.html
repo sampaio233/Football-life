@@ -2861,8 +2861,12 @@ function DashboardPage(){
     const totalLeagueWeeks = newCalendar.rounds.length*2;
     const newCup = scheduleCupWeeks(builtCups.cup, totalLeagueWeeks, 0);
     const newContinentalCup = builtCups.continentalCup ? scheduleContinentalWeeks(builtCups.continentalCup, totalLeagueWeeks, 4) : null;
-    persist(c=>({ ...c, player:updatedPlayer, currentCoach:newCoach, calendar:newCalendar, cup:newCup, continentalCup:newContinentalCup, weekIndex:0,
-      seasonProgress:{ matchesPlayed:0, matchesTotal:newCalendar.matchesTotal, goals:0, assists:0, saves:0, cleanSheets:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:player.overall } }));
+    // Continua a temporada de onde estava — não reinicia semana/rodada, só troca o calendário
+    // (adversários) pro novo clube. Se a nova liga tiver menos rodadas que a semana atual, trava no limite.
+    const maxWeekIndex = Math.max(0, (newCalendar.rounds.length*2)-2);
+    const continuedWeekIndex = Math.min(career.weekIndex, maxWeekIndex);
+    persist(c=>({ ...c, player:updatedPlayer, currentCoach:newCoach, calendar:newCalendar, cup:newCup, continentalCup:newContinentalCup, weekIndex:continuedWeekIndex,
+      seasonProgress:{ ...seasonProgress, matchesTotal:newCalendar.matchesTotal, matchesPlayed: Math.min(seasonProgress.matchesPlayed, Math.max(0, newCalendar.matchesTotal-1)) } }));
     setRequestedOffers(null);
     setRequestingTransfer(false);
   }
@@ -3695,6 +3699,9 @@ function MatchPage(){
       } else if(cup.phase==="semis"){
         updatedCup = advanceContinentalCup(cup, false, buildPlayerNationalTeamClub(player), pendingMatch.opponentClub, result.homeGoals, result.awayGoals);
         updatedCup = { ...updatedCup, playerGoals:(cup.playerGoals||0)+result.playerGoals, playerAssists:(cup.playerAssists||0)+result.playerAssists };
+        const wonMatch = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
+        const drewMatch = result.homeGoals===result.awayGoals;
+        const matchVerb = wonMatch ? "Vitória" : drewMatch ? "Empate" : "Derrota";
         if(updatedCup.phase==="final"){
           wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
             headline:`HISTÓRICO! Seleção está na final da Copa do Mundo com ${player.firstName} em campo!`,
@@ -3704,6 +3711,10 @@ function MatchPage(){
           wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
             headline:`Seleção cai na semifinal da Copa do Mundo`,
             summary:`Sonho do tetra/penta acaba no placar agregado contra a ${pendingMatch.opponentClub.name}.`, date:`Temporada ${career.currentSeason}`, impact:-10, season:career.currentSeason };
+        } else {
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
+            headline:`${matchVerb} da seleção na semifinal da Copa do Mundo`,
+            summary:`Primeiro jogo contra a ${pendingMatch.opponentClub.name}; decisão fica para o jogo de volta.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?7:drewMatch?2:-4, season:career.currentSeason };
         }
       } else {
         const isDraw = result.homeGoals===result.awayGoals;
@@ -3733,7 +3744,7 @@ function MatchPage(){
           updatedPlayer = { ...updatedPlayer, achievements:[...updatedPlayer.achievements, { id:`wc-boot-silver-${career.currentSeason}`, icon:"👢🥈", title:"Chuteira de Prata da Copa do Mundo", description:`${goldenBoot[1].goals} gols na competição, vice-artilheiro do Mundial.`, season:career.currentSeason }] };
         }
       }
-      updatedPlayer.newsLog = [wcNews, ...updatedPlayer.newsLog].slice(0,40);
+      if(wcNews) updatedPlayer.newsLog = [wcNews, ...updatedPlayer.newsLog].slice(0,40);
       setLastMatchResult(result);
       setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, worldCup:updatedCup });
       setScreen("dashboard");
@@ -3790,7 +3801,7 @@ function MatchPage(){
             headline:`${player.club.name} é eliminado da ${cup.name}`,
             summary:`Derrota${isDraw?" nos pênaltis":""} para o ${result.opponentClub.name} encerra o sonho do título.`, date:`Temporada ${career.currentSeason}`, impact:-10, season:career.currentSeason };
         }
-        updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
+        if(cupNews) updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
         setLastMatchResult(result);
         setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, cup:updatedCup,
           seasonProgress:{ ...career.seasonProgress, cupGoals:career.seasonProgress.cupGoals+result.playerGoals, cupAssists:career.seasonProgress.cupAssists+result.playerAssists } });
@@ -3862,7 +3873,7 @@ function MatchPage(){
           updatedPlayer = addMilestone(updatedPlayer, `Vice-campeão da ${cup.name}.`, career.currentSeason, "título");
         }
       }
-      updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
+      if(cupNews) updatedPlayer.newsLog = [cupNews, ...updatedPlayer.newsLog].slice(0,40);
       setLastMatchResult(result);
       setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, continentalCup:updatedCup,
         seasonProgress:{ ...career.seasonProgress, cupGoals:career.seasonProgress.cupGoals+result.playerGoals, cupAssists:career.seasonProgress.cupAssists+result.playerAssists } });
@@ -3925,19 +3936,6 @@ function MatchPage(){
               <TeamTag name={awayClub.name} color={awayClub.primaryColor} secondaryColor={awayClub.secondaryColor} />
             </div>
           </div>
-
-          {!["intro","fulltime","press"].includes(subPhase) && (()=>{
-            const isDecisionPhase = ["choose","corner-choice","resolved","penalties"].includes(subPhase);
-            return (
-              <div className={`card mb-4 transition-all ${isDecisionPhase?"p-2.5":"p-4"}`}>
-                <div className={`grid grid-cols-2 gap-2.5 ${isDecisionPhase?"mb-2.5":"mb-4"}`}>
-                  <FormationPitch club={homeClub} isPlayerTeam={pendingMatch.isHome} playerPosition={player.position} squad={pendingMatch.isHome?player.squad:null} flip={false} compact={isDecisionPhase} ballEvent={ballAnim && ballAnim.side==="home" ? ballAnim : null} />
-                  <FormationPitch club={awayClub} isPlayerTeam={!pendingMatch.isHome} playerPosition={player.position} squad={!pendingMatch.isHome?player.squad:null} flip={true} compact={isDecisionPhase} ballEvent={ballAnim && ballAnim.side==="away" ? ballAnim : null} />
-                </div>
-                {!isDecisionPhase && <MatchStatsBar stats={matchStats} homeClub={homeClub} awayClub={awayClub} />}
-              </div>
-            );
-          })()}
 
           {subPhase==="intro" && (
             <div className="card p-6 text-center">
@@ -4146,8 +4144,17 @@ function MatchPage(){
           )}
         </div>
 
-        {/* sidebar: outros jogos + artilharia */}
+        {/* sidebar: campo + estatísticas + outros jogos */}
         <div className="space-y-4">
+          {!["intro","fulltime","press"].includes(subPhase) && (
+            <div className="card p-3">
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <FormationPitch club={homeClub} isPlayerTeam={pendingMatch.isHome} playerPosition={player.position} squad={pendingMatch.isHome?player.squad:null} flip={false} compact={false} ballEvent={ballAnim && ballAnim.side==="home" ? ballAnim : null} />
+                <FormationPitch club={awayClub} isPlayerTeam={!pendingMatch.isHome} playerPosition={player.position} squad={!pendingMatch.isHome?player.squad:null} flip={true} compact={false} ballEvent={ballAnim && ballAnim.side==="away" ? ballAnim : null} />
+              </div>
+              <MatchStatsBar stats={matchStats} homeClub={homeClub} awayClub={awayClub} />
+            </div>
+          )}
           <div className="card p-4">
             <h3 className="eyebrow mb-3">Outros jogos da rodada</h3>
             <div className="space-y-2.5">
@@ -4420,8 +4427,32 @@ function App(){
   return <CareerProvider><Router /></CareerProvider>;
 }
 
+// Rede de segurança: se algum bug futuro quebrar uma tela específica (em vez de deixar a página inteira
+// em branco), mostra um aviso com a opção de voltar ao painel e exportar a carreira antes de continuar.
+class ErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state = { hasError:false, message:"" }; }
+  static getDerivedStateFromError(err){ return { hasError:true, message: (err && err.message) || "Erro desconhecido" }; }
+  componentDidCatch(err, info){ console.error("Erro capturado pela ErrorBoundary:", err, info); }
+  render(){
+    if(this.state.hasError){
+      return (
+        <div style={{minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#EEF2EE", padding:"24px", textAlign:"center", gap:"14px"}}>
+          <p style={{fontFamily:"'Rajdhani',sans-serif", fontWeight:700, fontSize:"22px", color:"#0E1512"}}>Algo deu errado nessa tela</p>
+          <p style={{fontFamily:"'Inter',sans-serif", fontSize:"13px", color:"#5B6B60", maxWidth:"420px"}}>
+            Um erro inesperado travou essa parte do jogo, mas sua carreira continua salva na memória do navegador.
+            Recarregue a página — se o problema persistir na mesma tela, use "Exportar carreira" assim que possível para não perder o progresso.
+          </p>
+          <p style={{fontFamily:"monospace", fontSize:"11px", color:"#B03030", background:"#FBEAEA", padding:"8px 12px", borderRadius:"6px", maxWidth:"90vw", overflowWrap:"anywhere"}}>{this.state.message}</p>
+          <button onClick={()=>window.location.reload()} style={{fontFamily:"'Rajdhani',sans-serif", fontWeight:700, background:"#155FD1", color:"#fff", border:"none", borderRadius:"8px", padding:"10px 24px", cursor:"pointer"}}>Recarregar</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
+root.render(<ErrorBoundary><App /></ErrorBoundary>);
 </script>
 
 <script>
