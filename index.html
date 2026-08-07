@@ -3511,15 +3511,19 @@ function MatchPage(){
     setLog(prev=>[{ minute, text }, ...prev].slice(0,30));
   }
 
-  function registerGoal(scoredByPlayerTeam){
+  function registerGoal(scoredByPlayerTeam, minute){
     if(pendingMatch.isHome){
       if(scoredByPlayerTeam) setHomeGoals(g=>g+1); else setAwayGoals(g=>g+1);
     } else {
       if(scoredByPlayerTeam) setAwayGoals(g=>g+1); else setHomeGoals(g=>g+1);
     }
     const scoringClub = scoredByPlayerTeam ? player.club : pendingMatch.opponentClub;
-    setGoalFlash({ name: scoringClub.name, color: scoringClub.primaryColor, textColor: scoringClub.secondaryColor });
-    window.setTimeout(()=>setGoalFlash(null), 1800);
+    const isFinal = /(^|—\s)Final$/i.test((pendingMatch.competition||"").trim());
+    const isLate = (minute||0)>=85;
+    const intense = isFinal || isLate;
+    setGoalFlash({ name: scoringClub.name, color: scoringClub.primaryColor, textColor: scoringClub.secondaryColor, intense,
+      tag: isFinal ? "GOL DA FINAL!" : isLate ? "GOL NOS MINUTOS FINAIS!" : null });
+    window.setTimeout(()=>setGoalFlash(null), intense?2800:1800);
   }
 
   function startMatch(){
@@ -3548,7 +3552,7 @@ function MatchPage(){
         resolved.reaction = resolved.kind==="teamGoal" ? GOAL_REACTIONS_TEAM : GOAL_REACTIONS_CONCEDED;
       }
       setCurrentTick(resolved);
-      if(isGoal) registerGoal(resolved.kind==="teamGoal");
+      if(isGoal) registerGoal(resolved.kind==="teamGoal", beat.minute);
       if(resolved.kind==="teamGoal" && resolved.scorerId){ setTeammateGoalEvents(prev=>[...prev, resolved.scorerId]); }
       pushLog(beat.minute, resolved.text);
       const tickIsTeamEvent = resolved.kind==="teamGoal" || resolved.kind==="teamMiss";
@@ -3620,7 +3624,7 @@ function MatchPage(){
       const outcome = resolveChoice(player, beat.moment, choiceId, opponentQuality);
       setCurrentOutcome(outcome);
       setOutcomes(prev=>[...prev, outcome]);
-      if(outcome.goal || outcome.assist) registerGoal(true); // assistência também é gol do seu time
+      if(outcome.goal || outcome.assist) registerGoal(true, beat.minute); // assistência também é gol do seu time
       if(outcome.assist && outcome.receiverId){ setTeammateGoalEvents(prev=>[...prev, outcome.receiverId]); }
       if(outcome.goal || outcome.save || outcome.defense || (beat.moment._template.canScore && Math.random()<0.7)){
         fireBallAnim(pendingMatch.isHome, outcome.goal ? "goal" : (Math.random()<0.5?"save":"miss"));
@@ -3653,7 +3657,7 @@ function MatchPage(){
       const outcome = resolveSetPiece(player, pendingSetPiece.kind, corner, opponentQuality);
       setCurrentOutcome(outcome);
       setOutcomes(prev=>[...prev, outcome]);
-      if(outcome.goal) registerGoal(true);
+      if(outcome.goal) registerGoal(true, beat.minute);
       pushLog(beat.minute, outcome.text);
       fireBallAnim(pendingMatch.isHome, outcome.goal ? "goal" : (Math.random()<0.5?"save":"miss"));
       setCrowdLine(crowdReaction(outcome.success, true));
@@ -4059,9 +4063,13 @@ function MatchPage(){
             <div className="absolute inset-0 opacity-[0.09] pointer-events-none" style={{background:`linear-gradient(120deg, ${homeClub.primaryColor}, ${awayClub.primaryColor})`}} />
             {rivalry && <p className="relative text-center font-display font-bold text-xs tracking-widest mb-2" style={{color:"#B8892E"}}>🔥 {rivalry.name.toUpperCase()} 🔥</p>}
             {goalFlash && (
-              <div className="absolute inset-0 flex items-center justify-center z-10 fade-in" style={{backgroundColor:goalFlash.color}}>
-                <div className="text-center pop-in">
-                  <p className="font-display text-5xl font-bold tracking-wide" style={{color:goalFlash.textColor}}>GOOOL!</p>
+              <div className="absolute inset-0 flex items-center justify-center z-10 fade-in overflow-hidden" style={{backgroundColor:goalFlash.color}}>
+                {goalFlash.intense && [...Array(14)].map((_,i)=>(
+                  <span key={i} className="absolute w-1.5 h-1.5 drift-particle" style={{ left:`${(i*7+5)%100}%`, top:`${(i*13)%40}%`, backgroundColor: i%2===0?goalFlash.textColor:"#FFFFFF", animationDuration:`${1.6+(i%4)*0.3}s`, animationDelay:`${(i%5)*0.15}s`, borderRadius: i%3===0?"9999px":"1px" }} />
+                ))}
+                <div className="text-center pop-in relative">
+                  {goalFlash.tag && <p className="font-display text-xs tracking-widest mb-1 opacity-90" style={{color:goalFlash.textColor}}>{goalFlash.tag}</p>}
+                  <p className={`font-display font-bold tracking-wide ${goalFlash.intense?"text-6xl":"text-5xl"}`} style={{color:goalFlash.textColor}}>GOOOL!</p>
                   <p className="text-sm mt-1 opacity-90" style={{color:goalFlash.textColor}}>{goalFlash.name}</p>
                 </div>
               </div>
@@ -4081,14 +4089,20 @@ function MatchPage(){
           </div>
           ); })()}
 
-          {subPhase==="intro" && (
-            <div className="card p-6 text-center">
-              <p className="text-steel-300 mb-2">{pendingMatch.isHome?"Jogo em casa":"Jogo fora de casa"} contra o {pendingMatch.opponentClub.name}.</p>
-              <p className="text-xs text-steel-400 mb-2">Mando de campo: {pendingMatch.isHome?player.club.name:pendingMatch.opponentClub.name} · Competição: {pendingMatch.competition}</p>
-              {pendingMatch.startsOnBench && <p className="text-xs text-state-warn mb-4">Você começa no banco de reservas. Acompanhe o primeiro tempo até ser chamado.</p>}
-              <button className="btn-primary" onClick={startMatch}>Começar a partida</button>
+          {subPhase==="intro" && (()=>{
+            const isFinalMatch = /(^|—\s)Final$/i.test((pendingMatch.competition||"").trim());
+            return (
+            <div className={`card p-6 text-center relative overflow-hidden ${isFinalMatch?"border-2":""}`} style={isFinalMatch?{borderColor:"#B8892E"}:{}}>
+              {isFinalMatch && <div className="absolute inset-0 opacity-[0.12] pointer-events-none" style={{background:"linear-gradient(135deg, #B8892E, transparent 60%)"}} />}
+              {isFinalMatch && <p className="relative font-display font-bold text-sm tracking-[0.2em] mb-3" style={{color:"#B8892E"}}>🏆 É DECISÃO — {pendingMatch.competition.toUpperCase()} 🏆</p>}
+              <p className="text-steel-300 mb-2 relative">{pendingMatch.isHome?"Jogo em casa":"Jogo fora de casa"} contra o {pendingMatch.opponentClub.name}.</p>
+              <p className="text-xs text-steel-400 mb-2 relative">Mando de campo: {pendingMatch.isHome?player.club.name:pendingMatch.opponentClub.name} · Competição: {pendingMatch.competition}</p>
+              {isFinalMatch && <p className="text-xs mb-2 relative" style={{color:"#B8892E"}}>Tudo o que você fez até aqui te trouxe pra este jogo. É agora ou nunca.</p>}
+              {pendingMatch.startsOnBench && <p className="text-xs text-state-warn mb-4 relative">Você começa no banco de reservas. Acompanhe o primeiro tempo até ser chamado.</p>}
+              <button className="btn-primary relative" onClick={startMatch}>{isFinalMatch?"Entrar em campo para a decisão":"Começar a partida"}</button>
             </div>
-          )}
+            );
+          })()}
 
           {subPhase==="auto" && currentTick && (
             <div className="card p-6 text-center fade-in">
