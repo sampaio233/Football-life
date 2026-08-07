@@ -727,7 +727,22 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
   }
 
   let nextNationalTeam = career.nationalTeam || null;
-  if(!evo.retirementSuggested && (!nextNationalTeam || nextNationalTeam.matchesRemaining<=0)){
+  let nextWorldCup = career.worldCup && !career.worldCup.champion && !career.worldCup.eliminated ? career.worldCup : null;
+  let nextWorldCupSeason = career.nextWorldCupSeason || 5; // primeira Copa do Mundo na temporada 5, tempo de virar referência na seleção
+  const upcomingSeason = career.currentSeason+1;
+  if(!evo.retirementSuggested && !nextWorldCup && upcomingSeason>=nextWorldCupSeason && finalPlayer.age>=18 && finalPlayer.reputation.national>=50){
+    nextWorldCup = scheduleContinentalWeeks(buildWorldCup(finalPlayer, upcomingSeason), totalLeagueWeeks, 12);
+    nextWorldCupSeason = upcomingSeason+4;
+    finalPlayer = addMilestone(finalPlayer, `Convocado para defender a seleção na Copa do Mundo!`, upcomingSeason, "seleção");
+    const wcCallUpNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+      headline:`${finalPlayer.firstName} ${finalPlayer.lastName} está na lista para a Copa do Mundo!`,
+      summary:`O país sonha alto e o jovem atleta será uma das esperanças na competição.`, date:`Temporada ${upcomingSeason}`, impact:25, season:upcomingSeason };
+    finalPlayer = { ...finalPlayer, newsLog:[wcCallUpNews, ...finalPlayer.newsLog].slice(0,40) };
+  } else if(upcomingSeason>=nextWorldCupSeason && !nextWorldCup){
+    // Não foi convocado desta vez — a janela se abre de novo no próximo ciclo.
+    nextWorldCupSeason = upcomingSeason+4;
+  }
+  if(!evo.retirementSuggested && !nextWorldCup && (!nextNationalTeam || nextNationalTeam.matchesRemaining<=0)){
     const callUp = checkNationalCallUp(finalPlayer, career.currentSeason, totalLeagueWeeks);
     finalPlayer = callUp.player;
     if(callUp.called) nextNationalTeam = callUp.nationalTeam;
@@ -736,7 +751,8 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
   const newCareer = { ...career, player:finalPlayer, weekIndex:0,
     currentSeason: evo.retirementSuggested ? career.currentSeason : career.currentSeason+1,
     seasonProgress:{ matchesPlayed:0, matchesTotal:nextCalendar.matchesTotal, goals:0, assists:0, saves:0, cleanSheets:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:evo.overallAfter },
-    calendar: nextCalendar, cup:nextCup, continentalCup:nextContinentalCup, nationalTeam:nextNationalTeam, retired:evo.retirementSuggested, retirementReason:evo.retirementReason };
+    calendar: nextCalendar, cup:nextCup, continentalCup:nextContinentalCup, nationalTeam:nextNationalTeam,
+    worldCup:nextWorldCup, nextWorldCupSeason, retired:evo.retirementSuggested, retirementReason:evo.retirementReason };
 
   return { newCareer, screen: evo.retirementSuggested ? "retirement" : "season-summary", transferOffers };
 }
@@ -952,12 +968,18 @@ const RELATIONSHIP_EVENTS = {
 
 
 const TRAINING_OPTIONS = [
-  { id:"finishing", label:"Finalização", description:"Sessões de conclusão de jogadas, chutes a gol e cobranças.", energyCost:11, injuryRisk:5, boostKeys:["finishing","composure"] },
+  { id:"finishing", label:"Finalização", description:"Sessões de conclusão de jogadas, chutes a gol e cobranças.", energyCost:11, injuryRisk:5, boostKeys:["finishing","composure"], hiddenFor:["GOL"] },
   { id:"passing", label:"Passe", description:"Trabalho de passe curto, passe longo e visão de jogo.", energyCost:9, injuryRisk:3, boostKeys:["shortPass","longPass","vision"] },
   { id:"strength", label:"Força", description:"Musculação e trabalho físico intenso na academia do clube.", energyCost:14, injuryRisk:9, boostKeys:["strength","balance"] },
   { id:"speed", label:"Velocidade", description:"Sprints e trabalho de explosão para ganhar ritmo de jogo.", energyCost:12, injuryRisk:8, boostKeys:["pace","acceleration"] },
-  { id:"defending", label:"Marcação e desarme", description:"Trabalho de posicionamento defensivo e disputa de bola.", energyCost:11, injuryRisk:6, boostKeys:["marking","tackling","positioning"] },
+  { id:"defending", label:"Marcação e desarme", description:"Trabalho de posicionamento defensivo e disputa de bola.", energyCost:11, injuryRisk:6, boostKeys:["marking","tackling","positioning"], hiddenFor:["GOL"] },
   { id:"tactical", label:"Treino tático", description:"Estudo de posicionamento e movimentação com o elenco.", energyCost:8, injuryRisk:2, boostKeys:["positioning","decisionMaking","teamwork"] },
+  { id:"aerial", label:"Cabeceio e jogo aéreo", description:"Trabalho de salto, disputa e cabeceio em bolas alçadas.", energyCost:12, injuryRisk:7, boostKeys:["heading","jumping","positioning"], hiddenFor:["GOL"] },
+  { id:"dribbling", label:"Drible e controle de bola", description:"Circuitos de condução, drible curto e agilidade com a bola nos pés.", energyCost:10, injuryRisk:4, boostKeys:["dribbling","ballControl","agility"] },
+  { id:"crossing", label:"Cruzamento", description:"Repetição de cruzamentos e centros na área em velocidade.", energyCost:10, injuryRisk:4, boostKeys:["crossing","ballControl","vision"], hiddenFor:["GOL"] },
+  { id:"set-pieces", label:"Cobranças de bola parada", description:"Sessões específicas de falta e pênalti direto ao gol.", energyCost:9, injuryRisk:2, boostKeys:["freeKick","penalty","composure"], hiddenFor:["GOL"] },
+  { id:"mental", label:"Concentração e liderança", description:"Trabalho psicológico, vídeo-análise e exercícios de tomada de decisão sob pressão.", energyCost:6, injuryRisk:1, boostKeys:["concentration","leadership","determination","discipline"] },
+  { id:"goalkeeping", label:"Treino de goleiro", description:"Reflexos, posicionamento, saída de gol e jogo aéreo específicos para o gol.", energyCost:12, injuryRisk:5, boostKeys:["positioning","agility","concentration","jumping","decisionMaking"], onlyFor:["GOL"] },
   { id:"rest", label:"Descanso", description:"Um dia de recuperação física e mental, sem treino de campo.", energyCost:-42, injuryRisk:0, boostKeys:[] },
   { id:"recovery", label:"Recuperação", description:"Fisioterapia leve e trabalho regenerativo com o departamento médico.", energyCost:-26, injuryRisk:0, boostKeys:["stamina"] },
   { id:"party", label:"Balada com os companheiros", description:"Uma noite fora aumenta sua popularidade, mas traz riscos.", energyCost:26, injuryRisk:22, boostKeys:[] },
@@ -1380,8 +1402,10 @@ function computeCupTopScorers(cup, player, statKey){
   const teams = cup.teams || [...(cup.groupA||[]), ...(cup.groupB||[])];
   const roundsEstimate = cup.phase ? (cup.phase==="groups"?cup.currentGroupRound+1:cup.phase==="semis"?4:5) : (cup.currentRoundIdx+1);
   const rows = [];
+  const playerTeamId = cup.playerClubId || player.club.id;
+  const playerTeam = teams.find(t=>t.id===playerTeamId);
   teams.forEach(t=>{
-    if(t.id===player.club.id) return;
+    if(t.id===playerTeamId) return;
     const seed = t.id.split("").reduce((a,c)=>a+c.charCodeAt(0)*(statKey==="goals"?1:3),0);
     const scorer = generateFictionalName(COUNTRY_NATIONALITY[t.countryId]||"Brasil");
     const base = statKey==="goals" ? 0.35 : 0.2;
@@ -1390,7 +1414,7 @@ function computeCupTopScorers(cup, player, statKey){
     if(value>0) rows.push({ name:`${scorer.first} ${scorer.last}`, club:t.name, [statKey]:value });
   });
   const playerValue = statKey==="goals" ? (cup.playerGoals||0) : (cup.playerAssists||0);
-  rows.push({ name:`${player.firstName} ${player.lastName}`, club:player.club.name, [statKey]:playerValue, isPlayer:true });
+  rows.push({ name:`${player.firstName} ${player.lastName}`, club:(playerTeam?playerTeam.name:player.club.name), [statKey]:playerValue, isPlayer:true });
   return rows.sort((a,b)=>b[statKey]-a[statKey]).slice(0,8);
 }
 
@@ -1445,6 +1469,38 @@ function generateNationalOpponent(playerNationality){
   const [primaryColor, secondaryColor] = pick(colorPairs);
   return { id:`nt-${nat}-${Date.now()}`, name:`Seleção ${["Estados Unidos","Emirados Árabes"].includes(nat)?"dos "+nat:"da "+nat}`, primaryColor, secondaryColor,
     squadQuality: rand(62,90), reputation: rand(62,90), tier:"grande", countryId:"internacional", league:"Seleções", crowdPressure:70, facilities:70, financialHealth:70, tradition:70, youthChance:30, coachStyle:"Tático", seasonObjective:"Amistoso internacional" };
+}
+
+const NATIONAL_TEAM_COLORS = {
+  Brasil:["#FFDF00","#009739"], Argentina:["#75AADB","#FFFFFF"], Portugal:["#C8102E","#046A38"], Espanha:["#C60B1E","#FFC400"],
+  Inglaterra:["#FFFFFF","#C8102E"], Alemanha:["#000000","#FFFFFF"], Itália:["#0066B3","#FFFFFF"], França:["#0055A4","#FFFFFF"],
+  Uruguai:["#75AADB","#FFFFFF"], Chile:["#D52B1E","#FFFFFF"],
+};
+function buildPlayerNationalTeamClub(player){
+  const [primaryColor, secondaryColor] = NATIONAL_TEAM_COLORS[player.nationality] || ["#009739","#FFDF00"];
+  return { id:`nt-player-${player.nationality}`, name:`Seleção ${["Estados Unidos"].includes(player.nationality)?"dos "+player.nationality:"da "+player.nationality}`,
+    primaryColor, secondaryColor, squadQuality: Math.min(94, player.overall+rand(8,18)), reputation: Math.min(95, 45+player.reputation.national/2),
+    tier:"grande", countryId:"internacional", league:"Seleções", crowdPressure:80, facilities:80, financialHealth:80, tradition:75, youthChance:25, coachStyle:"Tático", seasonObjective:"Copa do Mundo" };
+}
+
+// ============================================================
+// COPA DO MUNDO — reaproveita o motor da copa continental (grupo -> semifinal -> final),
+// numa escala reduzida (8 seleções em vez de 48), mas sem pular nenhuma fase.
+// ============================================================
+function buildWorldCup(player, season){
+  const playerNT = buildPlayerNationalTeamClub(player);
+  const usedNats = new Set([player.nationality, "Holanda"]);
+  const others = [];
+  for(let i=0;i<7;i++){
+    let candidates = NATIONALITIES.filter(n=>!usedNats.has(n));
+    if(candidates.length===0) candidates = NATIONALITIES.filter(n=>n!=="Holanda");
+    const nat = pick(candidates);
+    usedNats.add(nat);
+    const [primaryColor, secondaryColor] = NATIONAL_TEAM_COLORS[nat] || pick([["#0033A0","#FFFFFF"],["#C8102E","#FFFFFF"],["#000000","#FFD100"]]);
+    others.push({ id:`wc-${nat}-${i}-${season}`, name:`Seleção ${["Estados Unidos"].includes(nat)?"dos "+nat:"da "+nat}`, primaryColor, secondaryColor,
+      squadQuality: rand(60,93), reputation: rand(60,93), tier:"grande", countryId:"internacional", league:"Copa do Mundo" });
+  }
+  return buildContinentalCup(`Copa do Mundo ${season}`, [playerNT, ...others], playerNT);
 }
 
 // Convocação para a seleção nacional — agenda partidas de verdade (jogáveis), não resolve sozinha.
@@ -2556,8 +2612,10 @@ function DashboardPage(){
   const cupTie = domesticCupTie || continentalCupTie;
   const cupKey = domesticCupTie ? "cup" : "continentalCup";
   const activeCup = domesticCupTie ? career.cup : career.continentalCup;
-  const nationalMatchDue = (!isMatchWeek && !cupTie && career.nationalTeam && career.nationalTeam.matchesRemaining>0 && career.nationalTeam.scheduledWeeks.includes(career.weekIndex));
-  const isTrainingWeek = !isMatchWeek && !activeInjury && !cupTie && !nationalMatchDue;
+  const worldCupTie = (!isMatchWeek && career.worldCup && !career.worldCup.champion && !career.worldCup.eliminated && career.worldCup.scheduledWeeks.includes(career.weekIndex))
+    ? findPlayerContinentalTie(career.worldCup) : null;
+  const nationalMatchDue = (!isMatchWeek && !cupTie && !worldCupTie && career.nationalTeam && career.nationalTeam.matchesRemaining>0 && career.nationalTeam.scheduledWeeks.includes(career.weekIndex));
+  const isTrainingWeek = !isMatchWeek && !activeInjury && !cupTie && !nationalMatchDue && !worldCupTie;
 
   function persist(updater){ setCareer(updater(career)); }
 
@@ -2608,11 +2666,11 @@ function DashboardPage(){
     const updatedPlayer = payWeeklySalary({ ...player, morale: Math.max(0, player.morale-3) });
     const nextSeasonProgress = { ...seasonProgress, matchesPlayed:seasonProgress.matchesPlayed+auto.matchesPlayedDelta };
     if(auto.matchesPlayedDelta>0 && nextSeasonProgress.matchesPlayed>=nextSeasonProgress.matchesTotal){
-      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }, updatedPlayer, nextSeasonProgress);
+      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup, worldCup:auto.worldCup }, updatedPlayer, nextSeasonProgress);
       setTransferOffers(transferOffers); setCareer(newCareer); setScreen(screen);
       return;
     }
-    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }));
+    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup, worldCup:auto.worldCup }));
   }
 
   function goToCupMatch(){
@@ -2626,7 +2684,16 @@ function DashboardPage(){
 
   function goToNationalMatch(){
     const opponent = generateNationalOpponent(player.nationality);
-    setPendingMatch({ opponentClub: opponent, isHome: Math.random()<0.5, competition:"Amistoso Internacional", isNational:true });
+    setPendingMatch({ opponentClub: opponent, isHome: Math.random()<0.5, competition:"Amistoso Internacional", isNational:true, playerTeamClub: buildPlayerNationalTeamClub(player) });
+    setScreen("match");
+  }
+
+  function goToWorldCupMatch(){
+    const tie = worldCupTie;
+    const roundName = continentalRoundLabel(career.worldCup);
+    const playerNT = buildPlayerNationalTeamClub(player);
+    setPendingMatch({ opponentClub: tie.home.id===career.worldCup.playerClubId ? tie.away : tie.home, isHome: tie.home.id===career.worldCup.playerClubId,
+      competition: `Copa do Mundo — ${roundName}`, isWorldCup:true, isKnockout: career.worldCup.phase==="final", playerTeamClub: playerNT });
     setScreen("match");
   }
 
@@ -2672,7 +2739,7 @@ function DashboardPage(){
     } else if(isByeWeek){
       simulateRoundExceptClub(calendar, currentRoundIdx, player.club.id);
     }
-    let updatedCup = career.cup, updatedContinentalCup = career.continentalCup;
+    let updatedCup = career.cup, updatedContinentalCup = career.continentalCup, updatedWorldCup = career.worldCup;
     if(cupTie){
       const res2 = quickSimResult(cupTie.home, cupTie.away);
       const opponentClub = cupTie.home.id===player.club.id ? cupTie.away : cupTie.home;
@@ -2690,7 +2757,20 @@ function DashboardPage(){
         updatedContinentalCup = advanceContinentalCup(activeCup, playerWon, player.club, opponentClub);
       }
     }
-    return { matchesPlayedDelta, calendar:{...calendar}, cup:updatedCup, continentalCup:updatedContinentalCup };
+    if(worldCupTie){
+      const playerNT = buildPlayerNationalTeamClub(player);
+      const res3 = quickSimResult(worldCupTie.home, worldCupTie.away);
+      const opponentNT = worldCupTie.home.id===career.worldCup.playerClubId ? worldCupTie.away : worldCupTie.home;
+      if(career.worldCup.phase==="groups" || career.worldCup.phase==="semis"){
+        updatedWorldCup = advanceContinentalCup(career.worldCup, false, playerNT, opponentNT, res3.homeGoals, res3.awayGoals);
+      } else {
+        const isDraw = res3.homeGoals===res3.awayGoals;
+        const wonNormally = worldCupTie.home.id===career.worldCup.playerClubId ? res3.homeGoals>res3.awayGoals : res3.awayGoals>res3.homeGoals;
+        const playerWon = wonNormally || (isDraw && Math.random()<0.5);
+        updatedWorldCup = advanceContinentalCup(career.worldCup, playerWon, playerNT, opponentNT);
+      }
+    }
+    return { matchesPlayedDelta, calendar:{...calendar}, cup:updatedCup, continentalCup:updatedContinentalCup, worldCup:updatedWorldCup };
   }
 
   function advanceInjuryWeek(){
@@ -2699,11 +2779,11 @@ function DashboardPage(){
     const updatedPlayer = payWeeklySalary({ ...player, injuries:updatedInjuries, energy:Math.min(100, player.energy+15) });
     const nextSeasonProgress = { ...seasonProgress, matchesPlayed:seasonProgress.matchesPlayed+auto.matchesPlayedDelta };
     if(auto.matchesPlayedDelta>0 && nextSeasonProgress.matchesPlayed>=nextSeasonProgress.matchesTotal){
-      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }, updatedPlayer, nextSeasonProgress);
+      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup, worldCup:auto.worldCup }, updatedPlayer, nextSeasonProgress);
       setTransferOffers(transferOffers); setCareer(newCareer); setScreen(screen);
       return;
     }
-    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }));
+    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup, worldCup:auto.worldCup }));
   }
 
   function playThroughSuspension(){
@@ -2711,11 +2791,11 @@ function DashboardPage(){
     const updatedPlayer = payWeeklySalary({ ...player, suspendedMatches: Math.max(0, player.suspendedMatches-1), energy: Math.min(100, player.energy+10) });
     const nextSeasonProgress = { ...seasonProgress, matchesPlayed:seasonProgress.matchesPlayed+auto.matchesPlayedDelta };
     if(auto.matchesPlayedDelta>0 && nextSeasonProgress.matchesPlayed>=nextSeasonProgress.matchesTotal){
-      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }, updatedPlayer, nextSeasonProgress);
+      const { newCareer, screen, transferOffers } = finishSeason({ ...career, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup, worldCup:auto.worldCup }, updatedPlayer, nextSeasonProgress);
       setTransferOffers(transferOffers); setCareer(newCareer); setScreen(screen);
       return;
     }
-    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup }));
+    persist(c=>({ ...c, player:updatedPlayer, weekIndex:c.weekIndex+1, seasonProgress:nextSeasonProgress, calendar:auto.calendar, cup:auto.cup, continentalCup:auto.continentalCup, worldCup:auto.worldCup }));
   }
 
   function handleExport(){ exportCareer(career); }
@@ -2882,6 +2962,30 @@ function DashboardPage(){
               <h2 className="font-display text-xl font-semibold text-steel-100 mt-2 mb-4">Seu time folga nesta rodada do {calendar.league}.</h2>
               <button className="btn-primary" onClick={skipByeWeek}>Avançar semana</button>
             </div>
+          ) : worldCupTie ? (
+            <div className="card p-6 relative overflow-hidden border-2" style={{borderColor:"#B8892E"}}>
+              <div className="absolute inset-0 opacity-[0.12] pointer-events-none" style={{background:"linear-gradient(135deg, #B8892E, #155FD1, #0F9D51)"}} />
+              <div className="relative text-center">
+                <span className="eyebrow" style={{color:"#B8892E"}}>🏆 Copa do Mundo {career.worldCup.name.replace("Copa do Mundo ","")} · {continentalRoundLabel(career.worldCup)}</span>
+                <div className="flex items-center justify-center gap-4 my-4">
+                  <div className="flex flex-col items-center gap-1.5 w-28">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center font-display font-bold shadow-lg" style={{backgroundColor:worldCupTie.home.primaryColor, color:worldCupTie.home.secondaryColor}}>
+                      {worldCupTie.home.name.replace("Seleção ","").split(" ").map(w=>w[0]).slice(0,2).join("")}
+                    </div>
+                    <p className="text-xs text-steel-300 leading-tight">{worldCupTie.home.name}</p>
+                  </div>
+                  <span className="font-display text-2xl" style={{color:"#B8892E"}}>×</span>
+                  <div className="flex flex-col items-center gap-1.5 w-28">
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center font-display font-bold shadow-lg" style={{backgroundColor:worldCupTie.away.primaryColor, color:worldCupTie.away.secondaryColor}}>
+                      {worldCupTie.away.name.replace("Seleção ","").split(" ").map(w=>w[0]).slice(0,2).join("")}
+                    </div>
+                    <p className="text-xs text-steel-300 leading-tight">{worldCupTie.away.name}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-steel-400 mb-5">O país inteiro para para assistir esse jogo. A pressão é máxima.</p>
+                <button className="btn-primary" onClick={goToWorldCupMatch} style={{backgroundColor:"#B8892E"}}>Entrar em campo</button>
+              </div>
+            </div>
           ) : nationalMatchDue ? (
             <div className="card p-6 bg-stadium-glow">
               <span className="eyebrow">Data Fifa · Seleção Nacional</span>
@@ -2940,7 +3044,7 @@ function DashboardPage(){
               <span className="eyebrow">Semana livre</span>
               <h2 className="font-display text-2xl font-semibold text-steel-100 mt-1 mb-4">Como você vai se preparar?</h2>
               <div className="grid sm:grid-cols-2 gap-3">
-                {TRAINING_OPTIONS.map(opt=>(
+                {TRAINING_OPTIONS.filter(opt=> (!opt.hiddenFor || !opt.hiddenFor.includes(player.position)) && (!opt.onlyFor || opt.onlyFor.includes(player.position))).map(opt=>(
                   <button key={opt.id} onClick={()=>handleTraining(opt.id)} className="text-left p-4 rounded-lg border border-pitch-700 bg-pitch-800 hover:border-touchline/60 transition-colors">
                     <p className="font-display font-semibold text-steel-100">{opt.label}</p>
                     <p className="text-xs text-steel-400 mt-1 mb-2">{opt.description}</p>
@@ -3024,6 +3128,20 @@ function DashboardPage(){
                   </div>
                 )}
                 {!career.continentalCup && <p className="text-[11px] text-steel-400">Reputação ainda baixa para disputar competição continental.</p>}
+              </div>
+            </div>
+          )}
+          {career.worldCup && (
+            <div className="card p-4 border-2" style={{borderColor:"#B8892E"}}>
+              <h3 className="font-display font-semibold text-steel-100 mb-3">🏆 {career.worldCup.name}</h3>
+              <div className="text-xs">
+                <div className="flex items-center justify-between mb-1">
+                  <button className="text-steel-300 hover:text-touchline text-left" onClick={()=>setCupDetailsOpen(v=>v==="worldCup"?null:"worldCup")}>Detalhes {cupDetailsOpen==="worldCup"?"▲":"▼"}</button>
+                  <span className={career.worldCup.champion?"font-semibold":career.worldCup.eliminated?"text-state-down":"text-steel-400"} style={career.worldCup.champion?{color:"#B8892E"}:{}}>
+                    {career.worldCup.champion ? "🏆 Campeão do Mundo!" : career.worldCup.eliminated ? "Fora da competição" : continentalRoundLabel(career.worldCup)}
+                  </span>
+                </div>
+                {cupDetailsOpen==="worldCup" && <CupDetailsPanel cup={career.worldCup} player={player} kind="continental" />}
               </div>
             </div>
           )}
@@ -3142,8 +3260,9 @@ function MatchPage(){
 
   if(!career || !pendingMatch) return null;
 
-  const homeClub = pendingMatch.isHome ? player.club : pendingMatch.opponentClub;
-  const awayClub = pendingMatch.isHome ? pendingMatch.opponentClub : player.club;
+  const playerTeamDisplay = pendingMatch.playerTeamClub || player.club;
+  const homeClub = pendingMatch.isHome ? playerTeamDisplay : pendingMatch.opponentClub;
+  const awayClub = pendingMatch.isHome ? pendingMatch.opponentClub : playerTeamDisplay;
 
   function pushLog(minute, text){
     setLog(prev=>[{ minute, text }, ...prev].slice(0,30));
@@ -3421,6 +3540,79 @@ function MatchPage(){
     }
 
     // Partida de copa: mata-mata à parte, não mexe na tabela nem no contador de jogos da liga.
+    if(pendingMatch.isWorldCup){
+      const cup = career.worldCup;
+      updatedPlayer.caps = (updatedPlayer.caps||0) + 1;
+      updatedPlayer.interGoals = (updatedPlayer.interGoals||0) + result.playerGoals;
+      let updatedCup, wcNews;
+      if(cup.phase==="groups"){
+        updatedCup = advanceContinentalCup(cup, false, buildPlayerNationalTeamClub(player), pendingMatch.opponentClub, result.homeGoals, result.awayGoals);
+        updatedCup = { ...updatedCup, playerGoals:(cup.playerGoals||0)+result.playerGoals, playerAssists:(cup.playerAssists||0)+result.playerAssists };
+        const wonMatch = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
+        const drewMatch = result.homeGoals===result.awayGoals;
+        const matchVerb = wonMatch ? "Vitória" : drewMatch ? "Empate" : "Derrota";
+        if(updatedCup.phase==="semis"){
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+            headline:`Seleção avança nas semifinais da Copa do Mundo com ${player.firstName} em campo!`,
+            summary:`${matchVerb} contra a ${pendingMatch.opponentClub.name} confirma a vaga entre os quatro melhores do mundo.`, date:`Temporada ${career.currentSeason}`, impact:35, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Semifinalista da Copa do Mundo!`, career.currentSeason, "seleção");
+        } else if(updatedCup.eliminated){
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+            headline:`Fora! Seleção é eliminada na fase de grupos da Copa do Mundo`,
+            summary:`Campanha decepcionante encerra o sonho do país nesta edição do Mundial.`, date:`Temporada ${career.currentSeason}`, impact:-15, season:career.currentSeason };
+        } else {
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
+            headline:`${matchVerb} da seleção na fase de grupos da Copa do Mundo`,
+            summary:`Resultado contra a ${pendingMatch.opponentClub.name} mantém viva a esperança de classificação.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?8:drewMatch?2:-6, season:career.currentSeason };
+        }
+      } else if(cup.phase==="semis"){
+        updatedCup = advanceContinentalCup(cup, false, buildPlayerNationalTeamClub(player), pendingMatch.opponentClub, result.homeGoals, result.awayGoals);
+        updatedCup = { ...updatedCup, playerGoals:(cup.playerGoals||0)+result.playerGoals, playerAssists:(cup.playerAssists||0)+result.playerAssists };
+        if(updatedCup.phase==="final"){
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+            headline:`HISTÓRICO! Seleção está na final da Copa do Mundo com ${player.firstName} em campo!`,
+            summary:`País inteiro para para o jogo mais importante em anos.`, date:`Temporada ${career.currentSeason}`, impact:50, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Finalista da Copa do Mundo!`, career.currentSeason, "seleção");
+        } else if(updatedCup.eliminated){
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+            headline:`Seleção cai na semifinal da Copa do Mundo`,
+            summary:`Sonho do tetra/penta acaba no placar agregado contra a ${pendingMatch.opponentClub.name}.`, date:`Temporada ${career.currentSeason}`, impact:-10, season:career.currentSeason };
+        }
+      } else {
+        const isDraw = result.homeGoals===result.awayGoals;
+        const wonNormally = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
+        const wonOnPens = isDraw && shootout && shootout.winnerSide && (shootout.winnerSide==="home")===pendingMatch.isHome;
+        const finalPlayerWon = wonNormally || wonOnPens || (isDraw && !shootout && Math.random()<0.5);
+        updatedCup = advanceContinentalCup(cup, finalPlayerWon, buildPlayerNationalTeamClub(player), pendingMatch.opponentClub);
+        updatedCup = { ...updatedCup, playerGoals:(cup.playerGoals||0)+result.playerGoals, playerAssists:(cup.playerAssists||0)+result.playerAssists };
+        if(finalPlayerWon){
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+            headline:`CAMPEÕES DO MUNDO! ${player.firstName} ${player.lastName} é campeão mundial!`,
+            summary:`Título decidido${isDraw?" nos pênaltis":""} contra a ${pendingMatch.opponentClub.name}. O país inteiro comemora.`, date:`Temporada ${career.currentSeason}`, impact:60, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `CAMPEÃO DO MUNDO!`, career.currentSeason, "título");
+          updatedPlayer = { ...updatedPlayer, achievements:[...updatedPlayer.achievements, { id:`worldcup-${career.currentSeason}`, icon:"🌍🏆", title:"Campeão da Copa do Mundo", description:`Título mundial conquistado na temporada ${career.currentSeason}.`, season:career.currentSeason }] };
+          updatedPlayer.reputation.international = 100;
+        } else {
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+            headline:`Vice-campeões! Seleção perde a final da Copa do Mundo`,
+            summary:`Derrota${isDraw?" nos pênaltis":""} para a ${pendingMatch.opponentClub.name} na decisão dói, mas a campanha entra para a história.`, date:`Temporada ${career.currentSeason}`, impact:20, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Vice-campeão da Copa do Mundo.`, career.currentSeason, "título");
+        }
+        // Fim de torneio: prêmios individuais.
+        const goldenBoot = computeCupTopScorers(updatedCup, updatedPlayer, "goals");
+        if(goldenBoot[0] && goldenBoot[0].isPlayer && goldenBoot[0].goals>=3){
+          updatedPlayer = { ...updatedPlayer, achievements:[...updatedPlayer.achievements, { id:`wc-boot-${career.currentSeason}`, icon:"👢🥇", title:"Chuteira de Ouro da Copa do Mundo", description:`${goldenBoot[0].goals} gols na competição, artilheiro do Mundial.`, season:career.currentSeason }] };
+        } else if(goldenBoot[1] && goldenBoot[1].isPlayer && goldenBoot[1].goals>=2){
+          updatedPlayer = { ...updatedPlayer, achievements:[...updatedPlayer.achievements, { id:`wc-boot-silver-${career.currentSeason}`, icon:"👢🥈", title:"Chuteira de Prata da Copa do Mundo", description:`${goldenBoot[1].goals} gols na competição, vice-artilheiro do Mundial.`, season:career.currentSeason }] };
+        }
+      }
+      updatedPlayer.newsLog = [wcNews, ...updatedPlayer.newsLog].slice(0,40);
+      setLastMatchResult(result);
+      setCareer({ ...career, player:updatedPlayer, weekIndex:career.weekIndex+1, worldCup:updatedCup });
+      setScreen("dashboard");
+      return;
+    }
+
     if(pendingMatch.isNational){
       updatedPlayer.caps = (updatedPlayer.caps||0) + 1;
       updatedPlayer.interGoals = (updatedPlayer.interGoals||0) + result.playerGoals;
