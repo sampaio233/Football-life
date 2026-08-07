@@ -393,13 +393,15 @@ function calculateOverall(position, attributes){
 }
 
 function generateHiddenPotential(){
+  // Raridade calibrada: a maioria dos jogadores nunca vira fenômeno — 90+ é 8%, 95+ é 1%, 99+ é 0.2%.
   const roll = Math.random();
-  if(roll<0.35) return rand(72,80);
-  if(roll<0.65) return rand(81,86);
-  if(roll<0.85) return rand(87,91);
-  if(roll<0.96) return rand(92,96);
-  if(roll<0.995) return rand(97,99);
-  return 100;
+  if(roll<0.40) return rand(70,79);
+  if(roll<0.70) return rand(80,84);
+  if(roll<0.88) return rand(85,88);
+  if(roll<0.96) return rand(89,92);
+  if(roll<0.99) return rand(93,95);
+  if(roll<0.998) return rand(96,98);
+  return rand(99,100);
 }
 
 function generateInitialAttributes(position){
@@ -817,7 +819,7 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
 
   const newCareer = { ...career, player:finalPlayer, weekIndex:0,
     currentSeason: evo.retirementSuggested ? career.currentSeason : career.currentSeason+1,
-    seasonProgress:{ matchesPlayed:0, matchesTotal:nextCalendar.matchesTotal, goals:0, assists:0, saves:0, cleanSheets:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:evo.overallAfter },
+    seasonProgress:{ matchesPlayed:0, matchesTotal:nextCalendar.matchesTotal, goals:0, assists:0, minutes:0, saves:0, cleanSheets:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:evo.overallAfter },
     calendar: nextCalendar, cup:nextCup, continentalCup:nextContinentalCup, nationalTeam:nextNationalTeam,
     worldCup:nextWorldCup, nextWorldCupSeason, retired:evo.retirementSuggested, retirementReason:evo.retirementReason };
 
@@ -1076,11 +1078,11 @@ function applyMatchAttributeProgress(playerIn, rating, usedKeys){
   if(uniqueKeys.length===0) return player;
   let multiplier;
   if(rating<4.5) multiplier = -0.35;
-  else if(rating<5.9) multiplier = 0.05;
-  else if(rating<6.9) multiplier = 0.5;
-  else if(rating<7.9) multiplier = 1.0;
-  else if(rating<8.9) multiplier = 1.6;
-  else multiplier = 2.4;
+  else if(rating<5.9) multiplier = 0.03;
+  else if(rating<6.9) multiplier = 0.32;
+  else if(rating<7.9) multiplier = 0.62;
+  else if(rating<8.9) multiplier = 1.0;
+  else multiplier = 1.5;
   const ageMult = ageMultiplier(player.age);
   uniqueKeys.forEach(key=>{
     const current = getAttr(player, key);
@@ -1109,7 +1111,7 @@ function applyTraining(player, coachTrainingQuality, optionId){
     const current = getAttr(updated,key);
     const headroom = Math.max(0, updated.hiddenPotential - current);
     // BALANCEADO: ganho pequeno por sessão (0.15–0.55 pontos), trava suave perto do potencial.
-    const raw = rand(1,3) * 0.18 * mult * (headroom>0 ? Math.min(1, headroom/15) : 0.1);
+    const raw = rand(1,3) * 0.11 * mult * (headroom>0 ? Math.min(1, headroom/15) : 0.1);
     if(raw>0.02){ setAttr(updated,key,current+raw); gains.push({key,amount:Math.round(raw*10)/10}); }
   });
   updated.overall = calculateOverall(updated.position, updated.attributes);
@@ -1283,7 +1285,8 @@ function resolveChoice(player, moment, choiceId, opponentQuality){
   const skillScore = attrAvg + riskPenalty + moraleBoost - opponentQuality/6 + rand(-12,12);
   const success = skillScore >= 48;
 
-  const goal = success && !!template.canScore && Math.random() < (option.risk==="alto"?0.72:0.58);
+  const goal = success && !!template.canScore && Math.random() < Math.max(0.22, Math.min(0.82,
+    (option.risk==="alto"?0.58:0.42) + (getAttr(player,"finishing")-55)/180));
   const assist = success && !goal && !!template.canAssist && Math.random() < 0.28;
   const save = success && !!template.canSave && Math.random() < 0.65;
   const defense = success && !!template.canDefend && !goal && !assist && Math.random() < 0.55;
@@ -1975,7 +1978,7 @@ function createNewCareer(form, clubObj, quickMode){
   return {
     version:"2.1.0", player, currentCoach:coach, currentSeason:1, weekIndex:0,
     currentDate:"Pré-temporada, Ano 1", calendarStage:"pre-temporada", quickMode: !!quickMode,
-    seasonProgress:{ matchesPlayed:0, matchesTotal:calendar.matchesTotal, goals:0, assists:0, saves:0, cleanSheets:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:overall },
+    seasonProgress:{ matchesPlayed:0, matchesTotal:calendar.matchesTotal, goals:0, assists:0, minutes:0, saves:0, cleanSheets:0, cupGoals:0, cupAssists:0, ratingSum:0, yellowCards:0, redCards:0, injuriesThisSeason:0, overallAtStart:overall },
     calendar, cup, continentalCup, pendingTransferOffers:[], importantDecisions:[], retired:false,
   };
 }
@@ -3078,7 +3081,8 @@ function DashboardPage(){
                   {player.position==="GOL" ? (
                     <><span className="stat-num text-steel-100">{seasonProgress.saves||0}</span> defesas · <span className="stat-num text-steel-100">{seasonProgress.cleanSheets||0}</span> jogos sem sofrer gol</>
                   ) : (
-                    <><span className="stat-num text-steel-100">{seasonProgress.goals}</span> gols · <span className="stat-num text-steel-100">{seasonProgress.assists}</span> assistências</>
+                    <><span className="stat-num text-steel-100">{seasonProgress.goals}</span> gols · <span className="stat-num text-steel-100">{seasonProgress.assists}</span> assistências
+                    {seasonProgress.minutes>0 && <span className="text-steel-400 text-xs"> ({(seasonProgress.goals/(seasonProgress.minutes/90)).toFixed(2)} gols/90 · {seasonProgress.minutes} min)</span>}</>
                   )}
                 </p>
               </div>
@@ -3491,9 +3495,11 @@ function MatchPage(){
 
   const opponentQuality = useMemo(()=>{
     const c = pendingMatch.opponentClub;
-    return Math.min(97, Math.max(25, c.squadQuality*0.7 + c.reputation*0.3 + (Math.random()*14-7)));
+    // Vantagem de mando: time que joga fora de casa contra o jogador fica um pouco mais forte na conta.
+    const homeAdvantage = pendingMatch.isHome ? 0 : 5;
+    return Math.min(97, Math.max(25, c.squadQuality*0.7 + c.reputation*0.3 + homeAdvantage + (Math.random()*14-7)));
   }, [pendingMatch.opponentClub.id]);
-  const teamQuality = player.club.squadQuality;
+  const teamQuality = Math.min(97, Math.max(25, player.club.squadQuality + (pendingMatch.isHome?5:0)));
 
   const pressScenario = useMemo(()=>{
     if(!pendingResult) return null;
@@ -3731,6 +3737,8 @@ function MatchPage(){
     updatedPlayer.totalCareerGoals = (updatedPlayer.totalCareerGoals||0) + result.playerGoals;
     updatedPlayer.totalCareerAssists = (updatedPlayer.totalCareerAssists||0) + result.playerAssists;
     updatedPlayer.totalCareerMatches = (updatedPlayer.totalCareerMatches||0) + 1;
+    const minutesThisMatch = pendingMatch.startsOnBench ? Math.max(2, 90-(timeline.find(b=>b.type==="substitution")?.minute||58)) : 90;
+    updatedPlayer.totalMinutes = (updatedPlayer.totalMinutes||0) + minutesThisMatch;
     if(player.position==="GOL"){
       updatedPlayer.totalSaves = (updatedPlayer.totalSaves||0) + (result.saves||0);
       updatedPlayer.totalCleanSheets = (updatedPlayer.totalCleanSheets||0) + (result.cleanSheet?1:0);
@@ -4031,6 +4039,7 @@ function MatchPage(){
 
     const nextSeasonProgress = { ...career.seasonProgress, matchesPlayed:career.seasonProgress.matchesPlayed+1,
       goals:career.seasonProgress.goals+result.playerGoals, assists:career.seasonProgress.assists+result.playerAssists,
+      minutes:(career.seasonProgress.minutes||0)+minutesThisMatch,
       saves:(career.seasonProgress.saves||0)+(result.saves||0), cleanSheets:(career.seasonProgress.cleanSheets||0)+(result.cleanSheet?1:0),
       ratingSum:career.seasonProgress.ratingSum+result.rating, yellowCards:seasonYellow, redCards:career.seasonProgress.redCards+(result.redCard?1:0) };
 
