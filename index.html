@@ -32,8 +32,8 @@
   };
 </script>
 <style>
-  html { color-scheme: light; }
-  body { background:#EEF2EE; font-family:'Inter',sans-serif; color:#0E1512; }
+  html { color-scheme: light; overflow-x: hidden; max-width: 100vw; }
+  body { background:#EEF2EE; font-family:'Inter',sans-serif; color:#0E1512; overflow-x: hidden; max-width: 100vw; }
   h1,h2,h3,h4 { font-family:'Rajdhani',sans-serif; }
   ::selection { background: rgba(21,95,209,0.18); }
   .card { background:#FFFFFF; border:1px solid rgba(15,25,18,0.07); border-radius:1rem; box-shadow:0 1px 0 0 rgba(255,255,255,0.7) inset, 0 14px 32px -14px rgba(15,25,18,0.22), 0 2px 6px -2px rgba(15,25,18,0.08); }
@@ -2350,20 +2350,22 @@ function Meter({ label, value }){
 const TIER_LABEL = { pequeno:"Clube pequeno", medio:"Clube médio", grande:"Clube grande" };
 function ClubCard({ clubObj, selected, onSelect }){
   return (
-    <button onClick={onSelect} className={`text-left p-5 w-full card transition-all duration-150 hover:border-touchline/60 hover:-translate-y-0.5 ${selected?"border-touchline ring-1 ring-touchline":""}`}>
+    <button onClick={onSelect} className={`text-left p-5 w-full rounded-2xl transition-all duration-150 hover:-translate-y-0.5 relative overflow-hidden ${selected?"soft-shadow":""}`}
+      style={{background:"rgba(255,255,255,0.045)", border: selected?`1px solid ${clubObj.primaryColor}`:"1px solid rgba(255,255,255,0.09)", boxShadow: selected?`0 0 0 1px ${clubObj.primaryColor}, 0 20px 40px -20px ${clubObj.primaryColor}66`:"none"}}>
+      <div className="absolute top-0 left-0 right-0 h-1" style={{background:clubObj.primaryColor}} />
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center font-display font-bold text-sm shrink-0" style={{backgroundColor:clubObj.primaryColor, color:clubObj.secondaryColor}}>
             {clubObj.name.split(" ").map(w=>w[0]).slice(0,2).join("")}
           </div>
           <div>
-            <h3 className="font-display font-semibold text-steel-100 leading-tight">{clubObj.name}</h3>
-            <p className="text-xs text-steel-400">{clubObj.league}</p>
+            <h3 className="font-display font-semibold text-white leading-tight">{clubObj.name}</h3>
+            <p className="text-xs text-white/45">{clubObj.league}</p>
           </div>
         </div>
-        <span className="eyebrow text-[10px] px-2 py-1 rounded bg-pitch-700 text-steel-300">{TIER_LABEL[clubObj.tier]}</span>
+        <span className="text-[10px] font-display uppercase px-2 py-1 rounded-full" style={{background:"rgba(255,255,255,0.08)", color:"rgba(255,255,255,0.55)"}}>{TIER_LABEL[clubObj.tier]}</span>
       </div>
-      <p className="text-xs text-steel-400 mb-4">Objetivo: <span className="text-steel-200">{clubObj.seasonObjective}</span> · Treinador <span className="text-steel-200">{clubObj.coachStyle}</span></p>
+      <p className="text-xs text-white/45 mb-4">Objetivo: <span className="text-white/75">{clubObj.seasonObjective}</span> · Treinador <span className="text-white/75">{clubObj.coachStyle}</span></p>
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
         <Meter label="Estrutura" value={clubObj.facilities} />
         <Meter label="Elenco" value={clubObj.squadQuality} />
@@ -2376,7 +2378,24 @@ function ClubCard({ clubObj, selected, onSelect }){
 
 const OUTLET_STYLE = { nacional:"border-pitch-600", sensacionalista:"border-state-down/60", local:"border-pitchline/50", internacional:"border-crest-gold/50", programa:"border-touchline/50" };
 const OUTLET_TAG = { nacional:"Nacional", sensacionalista:"Sensacionalista", local:"Local", internacional:"Internacional", programa:"Programa" };
-function NewsCard({ item }){
+function NewsCard({ item, featured }){
+  if(featured){
+    return (
+      <div className="surface-1 soft-shadow overflow-hidden">
+        <div className="h-28 sm:h-36 relative flex items-end p-5" style={{background:`linear-gradient(135deg, var(--club-primary), #1A1D21)`}}>
+          <span className="absolute top-4 left-5 text-[10px] font-display font-semibold uppercase tracking-wide text-white/70">{item.outlet} · {OUTLET_TAG[item.outletType]}</span>
+          <h4 className="text-h2 text-white leading-tight relative">{item.headline}</h4>
+        </div>
+        <div className="p-5">
+          <p className="text-sm ink-dim mb-2">{item.summary}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] ink-dim opacity-60">{item.date}</p>
+            <span className={`text-[11px] font-mono ${item.impact>=0?"text-emerald-500":"text-red-500"}`}>{item.impact>=0?"+":""}{item.impact}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`card p-4 border-l-2 ${OUTLET_STYLE[item.outletType]}`}>
       <div className="flex items-center justify-between mb-1.5">
@@ -2392,32 +2411,48 @@ function NewsCard({ item }){
 
 function StandingsTable({ calendar, playerClubId, compact }){
   const rows = sortedStandings(calendar);
+  const totalTeams = rows.length;
+  const relegationSpots = (DIVISION_LINKS[calendar.league] && DIVISION_LINKS[calendar.league].relegationSpots) || 0;
   const shown = compact ? rows.filter((r,i)=> i<3 || r.club.id===playerClubId || Math.abs(rows.findIndex(x=>x.club.id===playerClubId)-i)<=1) : rows;
+  function zoneColor(pos){
+    if(pos<=CONTINENTAL_QUALIFICATION_SPOTS) return "var(--club-primary)"; // Libertadores/Champions
+    if(pos<=CONTINENTAL_QUALIFICATION_SPOTS+2) return "#3DDC84"; // Sul-Americana/Europa
+    if(relegationSpots>0 && pos>totalTeams-relegationSpots) return "#E5545A"; // rebaixamento
+    return "transparent";
+  }
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="text-steel-400 text-left">
-            <th className="py-1 pr-2">#</th><th className="py-1 pr-2">Clube</th><th className="py-1 px-1 text-center">J</th>
-            <th className="py-1 px-1 text-center">V</th><th className="py-1 px-1 text-center">E</th><th className="py-1 px-1 text-center">D</th>
-            <th className="py-1 px-1 text-center">SG</th><th className="py-1 pl-1 text-center">Pts</th>
+          <tr className="ink-dim text-left">
+            <th className="py-1.5 pr-2 w-6"></th><th className="py-1.5 pr-2">#</th><th className="py-1.5 pr-2">Clube</th><th className="py-1.5 px-1 text-center">J</th>
+            <th className="py-1.5 px-1 text-center">V</th><th className="py-1.5 px-1 text-center">E</th><th className="py-1.5 px-1 text-center">D</th>
+            <th className="py-1.5 px-1 text-center">SG</th><th className="py-1.5 pl-1 text-center">Pts</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r,i)=> (compact && !shown.includes(r)) ? null : (
-            <tr key={r.club.id} className={`${r.club.id===playerClubId?"text-touchline font-semibold":"text-steel-300"} border-t border-pitch-700`}>
-              <td className="py-1 pr-2">{i+1}</td>
-              <td className="py-1 pr-2">{r.club.name}</td>
-              <td className="py-1 px-1 text-center">{r.j}</td>
-              <td className="py-1 px-1 text-center">{r.v}</td>
-              <td className="py-1 px-1 text-center">{r.e}</td>
-              <td className="py-1 px-1 text-center">{r.d}</td>
-              <td className="py-1 px-1 text-center">{r.gp-r.gc}</td>
-              <td className="py-1 pl-1 text-center font-mono">{r.pts}</td>
+            <tr key={r.club.id} className={r.club.id===playerClubId?"font-semibold":""} style={{color: r.club.id===playerClubId?"var(--club-primary)":"var(--ink)", borderTop:"1px solid var(--hairline)"}}>
+              <td className="py-1.5"><span className="block w-1 h-4 rounded-full" style={{background:zoneColor(i+1)}} /></td>
+              <td className="py-1.5 pr-2 stat-num">{i+1}</td>
+              <td className="py-1.5 pr-2">{r.club.name}</td>
+              <td className="py-1.5 px-1 text-center ink-dim">{r.j}</td>
+              <td className="py-1.5 px-1 text-center ink-dim">{r.v}</td>
+              <td className="py-1.5 px-1 text-center ink-dim">{r.e}</td>
+              <td className="py-1.5 px-1 text-center ink-dim">{r.d}</td>
+              <td className="py-1.5 px-1 text-center ink-dim">{r.gp-r.gc}</td>
+              <td className="py-1.5 pl-1 text-center font-mono font-semibold">{r.pts}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {!compact && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[10px] ink-dim">
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{background:"var(--club-primary)"}} />Libertadores/Champions</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{background:"#3DDC84"}} />Sul-Americana/Europa</span>
+          {relegationSpots>0 && <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{background:"#E5545A"}} />Rebaixamento</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -2695,21 +2730,22 @@ function PlayerCreationPage(){
   }
 
   return (
-    <div className="min-h-screen bg-pitch-950 flex flex-col items-center px-4 py-10">
-      <div className="w-full max-w-2xl">
-        <div className="flex items-center gap-2 mb-8">
+    <div className="min-h-screen flex flex-col items-center px-4 py-10 sm:py-16 relative overflow-hidden" style={{background:"#0A0C0E"}}>
+      <div className="absolute inset-0 opacity-40 pointer-events-none" style={{background:"radial-gradient(900px 500px at 50% -10%, #155FD155, transparent 60%)"}} />
+      <div className="w-full max-w-2xl relative">
+        <div className="flex items-center gap-2 mb-10">
           {CREATION_STEPS.map((label,i)=>(
             <div key={label} className="flex-1">
-              <div className={`h-1.5 rounded-full ${i<=step?"bg-touchline":"bg-pitch-700"}`} />
-              <p className={`mt-2 text-[11px] font-display uppercase tracking-wide ${i===step?"text-steel-100":"text-steel-400"}`}>{label}</p>
+              <div className="h-1 rounded-full" style={{background: i<=step?"var(--club-primary)":"rgba(255,255,255,0.12)"}} />
+              <p className="mt-2 text-[10px] font-display uppercase tracking-widest hidden sm:block" style={{color: i===step?"#fff":"rgba(255,255,255,0.35)"}}>{label}</p>
             </div>
           ))}
         </div>
 
-        <div className="card p-6 md:p-8 fade-in">
+        <div className="match-panel p-6 md:p-9 fade-in soft-shadow">
           {step===0 && (
             <div className="space-y-4">
-              <h2 className="font-display text-2xl font-semibold text-steel-100">Quem é você?</h2>
+              <h2 className="text-h2 text-white mb-1">Quem é você?</h2>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Nome"><input className="input" value={draft.firstName} onChange={e=>update("firstName",e.target.value)} placeholder="Ex: Lucas" /></Field>
                 <Field label="Sobrenome"><input className="input" value={draft.lastName} onChange={e=>update("lastName",e.target.value)} placeholder="Ex: Andrade" /></Field>
@@ -2728,7 +2764,7 @@ function PlayerCreationPage(){
 
           {step===1 && (
             <div className="space-y-5">
-              <h2 className="font-display text-2xl font-semibold text-steel-100">Aparência</h2>
+              <h2 className="text-h2 text-white mb-1">Aparência</h2>
               <div className="flex gap-6 items-start">
                 <div className="shrink-0 rounded-xl bg-pitch-850 border border-pitch-700 p-3 flex justify-center">
                   <PlayerAvatar appearance={draft.appearance} club={null} number={draft.preferredNumber} position={draft.position} size={92} />
@@ -2774,7 +2810,7 @@ function PlayerCreationPage(){
 
           {step===2 && (
             <div className="space-y-5">
-              <h2 className="font-display text-2xl font-semibold text-steel-100">Físico</h2>
+              <h2 className="text-h2 text-white mb-1">Físico</h2>
               <Field label={`Altura — ${draft.heightCm} cm`}><input type="range" min={158} max={200} value={draft.heightCm} onChange={e=>update("heightCm",Number(e.target.value))} className="w-full accent-touchline" /></Field>
               <Field label={`Peso — ${draft.weightKg} kg`}><input type="range" min={55} max={95} value={draft.weightKg} onChange={e=>update("weightKg",Number(e.target.value))} className="w-full accent-touchline" /></Field>
               <Field label="Pé dominante">
@@ -2786,7 +2822,7 @@ function PlayerCreationPage(){
 
           {step===3 && (
             <div className="space-y-5">
-              <h2 className="font-display text-2xl font-semibold text-steel-100">Posição em campo</h2>
+              <h2 className="text-h2 text-white mb-1">Posição em campo</h2>
               <div className="relative mx-auto w-full max-w-xs aspect-[2/3] bg-pitchline/10 border border-pitchline/30 rounded-lg overflow-hidden">
                 <div className="absolute inset-x-0 top-1/2 border-t border-pitchline/30" />
                 <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full border border-pitchline/30" />
@@ -2806,7 +2842,7 @@ function PlayerCreationPage(){
 
           {step===4 && (
             <div className="space-y-4">
-              <h2 className="font-display text-2xl font-semibold text-steel-100">Personalidade</h2>
+              <h2 className="text-h2 text-white mb-1">Personalidade</h2>
               <div className="grid sm:grid-cols-2 gap-3 max-h-[420px] overflow-y-auto pr-1">
                 {PERSONALITIES.map(p=>(
                   <button key={p.name} onClick={()=>update("personality",p.name)} className={`text-left p-4 rounded-lg border transition-colors ${draft.personality===p.name?"border-touchline bg-touchline/10":"border-pitch-700 bg-pitch-800 hover:border-pitch-600"}`}>
@@ -2822,7 +2858,7 @@ function PlayerCreationPage(){
 
           {step===5 && (
             <div className="space-y-4">
-              <h2 className="font-display text-2xl font-semibold text-steel-100">Onde começa sua carreira?</h2>
+              <h2 className="text-h2 text-white mb-1">Onde começa sua carreira?</h2>
               <div className="grid sm:grid-cols-2 gap-3">
                 {COUNTRIES.map(c=>(
                   <button key={c.id} onClick={()=>update("countryId",c.id)} className={`text-left p-4 rounded-lg border transition-colors ${draft.countryId===c.id?"border-touchline bg-touchline/10":"border-pitch-700 bg-pitch-800 hover:border-pitch-600"}`}>
@@ -2836,8 +2872,8 @@ function PlayerCreationPage(){
         </div>
 
         <div className="flex justify-between mt-6">
-          <button className="btn-secondary" onClick={()=> step===0 ? setScreen("start") : setStep(step-1)}>Voltar</button>
-          <button className="btn-primary" disabled={!canAdvance} onClick={next}>{step===CREATION_STEPS.length-1?"Escolher clube":"Continuar"}</button>
+          <button className="btn-hero text-white/85 border border-white/20 hover:bg-white/5" onClick={()=> step===0 ? setScreen("start") : setStep(step-1)}>Voltar</button>
+          <button className="btn-hero text-white soft-shadow" style={{background:"var(--club-primary)", opacity:canAdvance?1:.4}} disabled={!canAdvance} onClick={next}>{step===CREATION_STEPS.length-1?"Escolher clube":"Continuar"}</button>
         </div>
       </div>
     </div>
@@ -2877,26 +2913,27 @@ function ClubSelectionPage(){
   }
 
   return (
-    <div className="min-h-screen bg-pitch-950 px-4 py-10">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center gap-4 mb-2">
-          <div className="rounded-lg overflow-hidden bg-pitch-850 border border-pitch-700 shrink-0">
+    <div className="min-h-screen px-4 py-10 sm:py-16 relative overflow-hidden" style={{background:"#0A0C0E"}}>
+      <div className="absolute inset-0 opacity-30 pointer-events-none" style={{background:"radial-gradient(900px 500px at 50% -10%, #155FD155, transparent 60%)"}} />
+      <div className="max-w-5xl mx-auto relative">
+        <div className="flex items-center gap-4 mb-3">
+          <div className="rounded-xl overflow-hidden shrink-0" style={{background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)"}}>
             <PlayerAvatar appearance={draft.appearance} club={selected} number={draft.preferredNumber} position={draft.position} size={40} />
           </div>
-          <span className="eyebrow">{country.flag} {country.name}</span>
+          <span className="text-label text-white/50">{country.flag} {country.name}</span>
         </div>
-        <h1 className="font-display text-3xl font-bold text-steel-100 mt-1 mb-2">Escolha seu clube</h1>
-        <p className="text-steel-400 text-sm mb-8 max-w-xl">Cada clube tem uma perspectiva diferente para sua chegada. Times pequenos oferecem mais chances de jogar; times grandes trazem prestígio e pressão.</p>
+        <h1 className="text-hero text-white mt-1 mb-2" style={{fontSize:"clamp(1.75rem,4vw,2.75rem)"}}>Escolha seu clube</h1>
+        <p className="text-white/45 text-sm mb-8 max-w-xl">Cada clube tem uma perspectiva diferente para sua chegada. Times pequenos oferecem mais chances de jogar; times grandes trazem prestígio e pressão.</p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {clubs.map(c=> <ClubCard key={c.id} clubObj={c} selected={selected&&selected.id===c.id} onSelect={()=>setSelected(c)} />)}
         </div>
-        <label className="flex items-center gap-2 mt-8 text-xs text-steel-400 cursor-pointer w-fit">
+        <label className="flex items-center gap-2 mt-8 text-xs text-white/45 cursor-pointer w-fit">
           <input type="checkbox" checked={quickMode} onChange={e=>setQuickMode(e.target.checked)} className="accent-touchline" />
           Modo rápido (temporadas de 12 jogos, só para testes — ligas com elenco completo cadastrado, como o Brasileirão Série A, usam a temporada cheia de 38 rodadas por padrão)
         </label>
-        <div className="flex justify-between items-center mt-4">
-          <button className="btn-secondary" onClick={()=>setScreen("creation")}>Voltar</button>
-          <button className="btn-primary" disabled={!selected} onClick={confirm}>Assinar contrato e começar</button>
+        <div className="flex justify-between items-center mt-6">
+          <button className="btn-hero text-white/85 border border-white/20 hover:bg-white/5" onClick={()=>setScreen("creation")}>Voltar</button>
+          <button className="btn-hero text-white soft-shadow" style={{background: selected?selected.primaryColor:"var(--club-primary)", opacity:selected?1:.4}} disabled={!selected} onClick={confirm}>Assinar contrato e começar</button>
         </div>
       </div>
     </div>
@@ -2921,6 +2958,36 @@ function MiniStat({ label, value }){
   return <div className="text-center"><p key={rounded} className={`stat-num text-lg ${color} count-up`}>{rounded}</p><p className="text-[10px] text-steel-400 uppercase tracking-wide">{label}</p></div>;
 }
 
+function CupBracket({ rounds, currentRoundIdx }){
+  const visibleRounds = rounds.map((round,ri)=>({ round, ri })).filter(({ri})=>ri<=currentRoundIdx);
+  return (
+    <div className="flex gap-6 overflow-x-auto pb-2 -mx-1 px-1">
+      {visibleRounds.map(({round,ri})=>(
+        <div key={ri} className="shrink-0 w-44 flex flex-col justify-around gap-3">
+          <p className="text-[10px] ink-dim uppercase tracking-wide mb-1">{cupRoundName(round.length*2)}</p>
+          {round.map((m,mi)=>{
+            const score = m.resolved ? (m.homeGoals!=null ? `${m.homeGoals}-${m.awayGoals}` : null) : null;
+            const homeWon = m.winner && m.winner.id===m.home.id;
+            const awayWon = m.winner && m.winner.id===m.away.id;
+            return (
+              <div key={mi} className="rounded-lg overflow-hidden" style={{border:"1px solid var(--hairline)"}}>
+                <div className="flex items-center justify-between px-2 py-1.5" style={{background: homeWon?"var(--club-primary)":"var(--surface-2)", color: homeWon?"#fff":"var(--ink)"}}>
+                  <span className="truncate text-[11px]">{m.home.name}</span>
+                  {score && <span className="stat-num text-[11px] shrink-0 ml-1">{score.split("-")[0]}</span>}
+                </div>
+                <div className="flex items-center justify-between px-2 py-1.5" style={{background: awayWon?"var(--club-primary)":"var(--surface-2)", color: awayWon?"#fff":"var(--ink)"}}>
+                  <span className="truncate text-[11px]">{m.away.name}</span>
+                  {score && <span className="stat-num text-[11px] shrink-0 ml-1">{score.split("-")[1]}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CupDetailsPanel({ cup, player, kind }){
   const [tab, setTab] = useState("classificacao");
   const topScorers = computeCupTopScorers(cup, player, "goals");
@@ -2928,7 +2995,7 @@ function CupDetailsPanel({ cup, player, kind }){
   return (
     <div className="mt-2 pt-2 border-t border-pitch-700">
       <div className="flex gap-2 mb-2">
-        <button onClick={()=>setTab("classificacao")} className={`text-[10px] px-2 py-1 rounded ${tab==="classificacao"?"bg-touchline text-white":"bg-pitch-800 text-steel-400"}`}>Classificação</button>
+        <button onClick={()=>setTab("classificacao")} className={`text-[10px] px-2 py-1 rounded ${tab==="classificacao"?"bg-touchline text-white":"bg-pitch-800 text-steel-400"}`}>Chave</button>
         <button onClick={()=>setTab("artilharia")} className={`text-[10px] px-2 py-1 rounded ${tab==="artilharia"?"bg-touchline text-white":"bg-pitch-800 text-steel-400"}`}>Artilharia</button>
         <button onClick={()=>setTab("assistencias")} className={`text-[10px] px-2 py-1 rounded ${tab==="assistencias"?"bg-touchline text-white":"bg-pitch-800 text-steel-400"}`}>Assistências</button>
       </div>
@@ -2955,19 +3022,7 @@ function CupDetailsPanel({ cup, player, kind }){
         </div>
       )}
       {tab==="classificacao" && kind==="knockout" && (
-        <div className="space-y-1.5">
-          {cup.rounds.map((round,ri)=> ri<=cup.currentRoundIdx && (
-            <div key={ri}>
-              <p className="text-[10px] text-steel-400 uppercase mb-1">{cupRoundName(round.length*2)}</p>
-              {round.map((m,mi)=>(
-                <div key={mi} className="flex items-center justify-between text-steel-300 mb-0.5">
-                  <span className="truncate">{m.home.name} x {m.away.name}</span>
-                  <span className="stat-num shrink-0">{m.resolved ? `${m.homeGoals!=null?m.homeGoals+"-"+m.awayGoals:(m.winner?"✓":"")}` : "—"}</span>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
+        <CupBracket rounds={cup.rounds} currentRoundIdx={cup.currentRoundIdx} />
       )}
       {tab==="classificacao" && kind==="continental" && (
         <div className="space-y-2">
@@ -3041,6 +3096,31 @@ function RelationshipEventCard({ event, onRespond }){
   );
 }
 
+function BottomNav(){
+  function go(id){
+    const el = document.getElementById(id);
+    if(el) el.scrollIntoView({ behavior:"smooth", block:"start" });
+  }
+  const items = [
+    { id:"nav-inicio", icon:"⌂", label:"Início" },
+    { id:"nav-jogo", icon:"⚽", label:"Jogos" },
+    { id:"nav-treino", icon:"🏋", label:"Treino" },
+    { id:"nav-vida", icon:"♥", label:"Vida" },
+  ];
+  return (
+    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 glass bottom-nav-safe" style={{borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+      <div className="grid grid-cols-4">
+        {items.map(it=>(
+          <button key={it.id} onClick={()=>go(it.id)} className="flex flex-col items-center gap-0.5 py-2.5 text-white/70 active:text-white transition-colors">
+            <span className="text-lg leading-none">{it.icon}</span>
+            <span className="text-[10px] font-display">{it.label}</span>
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 function DashboardPage(){
   const { career, setCareer, setScreen, setPendingMatch, transferOffers, setTransferOffers } = useCareer();
   const [attrTab, setAttrTab] = useState("Técnicos");
@@ -3051,6 +3131,7 @@ function DashboardPage(){
   const [requestingTransfer, setRequestingTransfer] = useState(false);
   const [showFullSquad, setShowFullSquad] = useState(false);
   const [showShop, setShowShop] = useState(false);
+  const [viewItem, setViewItem] = useState(null);
   const [cupDetailsOpen, setCupDetailsOpen] = useState(null);
   const [relationshipEvent, setRelationshipEvent] = useState(null);
   const [showBreakupMenu, setShowBreakupMenu] = useState(false);
@@ -3441,14 +3522,19 @@ function DashboardPage(){
         <div className="absolute inset-0 opacity-40" style={{background:`radial-gradient(900px 420px at 12% -10%, ${clubPrimary}55, transparent 60%), radial-gradient(700px 380px at 100% 0%, ${clubSecondary}33, transparent 55%)`}} />
         <div className="absolute inset-0 opacity-[0.05]" style={{backgroundImage:"repeating-linear-gradient(0deg, #fff 0 1px, transparent 1px 26px)"}} />
         <div className="max-w-[1320px] mx-auto px-5 sm:px-8 pt-8 pb-7 relative">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-2.5">
-              <span className="text-white/90 font-display font-bold text-sm tracking-wide">REAL LIFE FOOTBALL</span>
+          <div className="flex items-center justify-between mb-8 gap-3">
+            <div className="flex items-center gap-8 min-w-0">
+              <span className="text-white/90 font-display font-bold text-xs sm:text-sm tracking-wide whitespace-nowrap">REAL LIFE FOOTBALL</span>
+              <nav className="hidden lg:flex items-center gap-6">
+                {[["nav-inicio","Início"],["nav-jogo","Temporada"],["nav-treino","Treino"],["nav-vida","Vida"]].map(([id,label])=>(
+                  <button key={id} className="text-[12px] text-white/55 hover:text-white transition-colors" onClick={()=>{ const el=document.getElementById(id); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }}>{label}</button>
+                ))}
+              </nav>
             </div>
-            <div className="flex items-center gap-2">
-              <button className="text-[11px] text-white/60 hover:text-white/90 transition-colors" onClick={()=>{ setRequestedOffers(null); requestTransfer(); }}>Pedir transferência</button>
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <button className="text-[10px] sm:text-[11px] text-white/60 hover:text-white/90 transition-colors whitespace-nowrap" onClick={()=>{ setRequestedOffers(null); requestTransfer(); }}>Transferência</button>
               <span className="text-white/20">·</span>
-              <button className="text-[11px] text-white/60 hover:text-white/90 transition-colors" onClick={handleExport}>Exportar</button>
+              <button className="text-[10px] sm:text-[11px] text-white/60 hover:text-white/90 transition-colors whitespace-nowrap" onClick={handleExport}>Exportar</button>
             </div>
           </div>
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
@@ -3481,8 +3567,8 @@ function DashboardPage(){
         </div>
       </div>
 
-      <main className="max-w-[1320px] mx-auto px-5 sm:px-8 pt-8 grid lg:grid-cols-[1fr_360px] gap-8">
-        <div className="space-y-8">
+      <main id="nav-inicio" className="max-w-[1320px] mx-auto px-5 sm:px-8 pt-8 pb-24 lg:pb-8 grid lg:grid-cols-[1fr_360px] gap-8">
+        <div className="space-y-8 min-w-0">
           {requestedOffers && (
             <div className="surface-1 soft-shadow p-6">
               <div className="flex items-center justify-between mb-4">
@@ -3498,42 +3584,32 @@ function DashboardPage(){
               )}
             </div>
           )}
-          <div className="card p-4">
-            <div className="flex items-center justify-between">
+          <div id="nav-jogo" className="surface-1 soft-shadow p-6">
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <span className="eyebrow">Temporada {career.currentSeason} · {calendar.league}</span>
-                <p className="text-sm text-steel-300 mt-0.5">{seasonProgress.matchesPlayed}/{seasonProgress.matchesTotal} partidas disputadas</p>
-                {calendar.reduced && <p className="text-[11px] text-state-warn mt-1">Liga em modo reduzido — poucos clubes cadastrados nesta divisão.</p>}
+                <p className="text-label" style={{color:clubPrimary}}>{calendar.league} · Temporada {career.currentSeason}</p>
+                <p className="text-sm ink-dim mt-0.5">{seasonProgress.matchesPlayed}/{seasonProgress.matchesTotal} partidas disputadas</p>
+                {calendar.reduced && <p className="text-[11px] text-amber-500 mt-1">Liga em modo reduzido — poucos clubes cadastrados nesta divisão.</p>}
               </div>
-              <div className="flex items-center gap-3">
-                <div className="w-32 h-2 rounded-full bg-pitch-700 overflow-hidden">
-                  <div className="h-full bg-touchline rounded-full" style={{width:`${(seasonProgress.matchesPlayed/seasonProgress.matchesTotal)*100}%`, transition:"width .3s"}} />
-                </div>
-                <button className="text-xs text-touchline hover:underline" onClick={()=>setShowStandings(v=>!v)}>{showStandings?"Ocultar tabela":"Ver tabela"}</button>
-              </div>
+              <button className="text-xs px-3 py-1.5 rounded-full transition-colors" style={{background: showStandings?clubPrimary:"var(--surface-2)", color: showStandings?"#fff":"var(--ink-dim)", border:"1px solid var(--hairline)"}} onClick={()=>setShowStandings(v=>!v)}>{showStandings?"Ocultar tabela":"Ver tabela"}</button>
             </div>
-            <div className="flex items-center gap-6 mt-4 pt-4 border-t border-pitch-700">
-              <div>
-                <p className="eyebrow text-[10px] mb-1">Nesta temporada</p>
-                <p className="text-sm text-steel-200">
-                  {player.position==="GOL" ? (
-                    <><span className="stat-num text-steel-100">{seasonProgress.saves||0}</span> defesas · <span className="stat-num text-steel-100">{seasonProgress.cleanSheets||0}</span> jogos sem sofrer gol</>
-                  ) : (
-                    <><span className="stat-num text-steel-100">{seasonProgress.goals+(seasonProgress.cupGoals||0)}</span> gols · <span className="stat-num text-steel-100">{seasonProgress.assists+(seasonProgress.cupAssists||0)}</span> assistências
-                    {seasonProgress.minutes>0 && <span className="text-steel-400 text-xs"> ({(seasonProgress.goals/(seasonProgress.minutes/90)).toFixed(2)} gols/90 na liga · {seasonProgress.minutes} min)</span>}</>
-                  )}
-                </p>
-              </div>
-              <div>
-                <p className="eyebrow text-[10px] mb-1">Carreira</p>
-                <p className="text-sm text-steel-200">
-                  {player.position==="GOL" && <><span className="stat-num text-steel-100">{player.totalSaves||0}</span> defesas · <span className="stat-num text-steel-100">{player.totalCleanSheets||0}</span> sem sofrer gol · </>}
-                  <span className="stat-num text-steel-100">{Math.max(player.totalCareerGoals||0, careerGoals+seasonProgress.goals)}</span> gols · <span className="stat-num text-steel-100">{Math.max(player.totalCareerAssists||0, careerAssists+seasonProgress.assists)}</span> assistências · <span className="stat-num text-steel-100">{Math.max(player.totalCareerMatches||0, careerMatches+seasonProgress.matchesPlayed)}</span> jogos</p>
-              </div>
+            <div className="w-full h-1.5 rounded-full mt-4 overflow-hidden" style={{background:"var(--surface-2)"}}>
+              <div className="h-full rounded-full" style={{width:`${(seasonProgress.matchesPlayed/seasonProgress.matchesTotal)*100}%`, background:clubPrimary, transition:"width .3s"}} />
+            </div>
+            <div className="grid grid-cols-3 gap-4 mt-6 pt-6" style={{borderTop:"1px solid var(--hairline)"}}>
+              {player.position==="GOL" ? (<>
+                <div><p className="text-hero ink" style={{fontSize:"2rem"}}>{seasonProgress.saves||0}</p><p className="text-label">Defesas</p></div>
+                <div><p className="text-hero ink" style={{fontSize:"2rem"}}>{seasonProgress.cleanSheets||0}</p><p className="text-label">Sem sofrer gol</p></div>
+                <div><p className="text-hero ink" style={{fontSize:"2rem"}}>{Math.max(player.totalCareerMatches||0, careerMatches+seasonProgress.matchesPlayed)}</p><p className="text-label">Jogos (carreira)</p></div>
+              </>) : (<>
+                <div><p className="text-hero ink" style={{fontSize:"2rem"}}>{seasonProgress.goals+(seasonProgress.cupGoals||0)}</p><p className="text-label">Gols na temporada</p></div>
+                <div><p className="text-hero ink" style={{fontSize:"2rem"}}>{seasonProgress.assists+(seasonProgress.cupAssists||0)}</p><p className="text-label">Assistências</p></div>
+                <div><p className="text-hero ink" style={{fontSize:"2rem"}}>{Math.max(player.totalCareerGoals||0, careerGoals+seasonProgress.goals)}</p><p className="text-label">Gols (carreira)</p></div>
+              </>)}
             </div>
           </div>
 
-          {showStandings && <div className="card p-4"><h3 className="font-display font-semibold text-steel-100 mb-3">Classificação — {calendar.league}</h3><StandingsTable calendar={calendar} playerClubId={player.club.id} /></div>}
+          {showStandings && <div className="surface-1 soft-shadow p-6"><h3 className="text-h2 ink mb-4">Classificação — {calendar.league}</h3><StandingsTable calendar={calendar} playerClubId={player.club.id} /></div>}
 
           {coachChat && <CoachChatCard opener={coachChat} onRespond={respondCoachChat} />}
           {relationshipEvent && <RelationshipEventCard event={relationshipEvent} onRespond={respondRelationshipEvent} />}
@@ -3615,9 +3691,16 @@ function DashboardPage(){
             return (
             <div className="relative overflow-hidden rounded-2xl soft-shadow" style={{background:"linear-gradient(160deg, #101214 0%, #1b1e22 100%)"}}>
               <div className="absolute inset-0 opacity-30" style={{background:`linear-gradient(120deg, ${fixture.home.primaryColor}88, transparent 45%, ${fixture.away.primaryColor}88)`}} />
+              {rivalry && [...Array(5)].map((_,i)=>(
+                <span key={i} className="absolute rounded-full drift-particle pointer-events-none" style={{ width:`${34+i*10}px`, height:`${34+i*10}px`, left: i%2===0?`${3+i*2}%`:`${92-i*2}%`, bottom:"-10%", background:"radial-gradient(circle, rgba(255,255,255,0.09), transparent 70%)", animationDuration:`${4.5+i}s`, animationDelay:`${i*0.5}s` }} />
+              ))}
               <div className="relative px-6 sm:px-10 py-8 sm:py-10">
                 {rivalry ? (
-                  <p className="text-center text-label mb-2" style={{color:"#D9A441", letterSpacing:".25em"}}>🔥 {rivalry.name.toUpperCase()}</p>
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <span className="inline-block w-3 h-2" style={{background:fixture.home.primaryColor, clipPath:"polygon(0 0, 100% 50%, 0 100%)"}} />
+                    <p className="text-center text-label" style={{color:"#D9A441", letterSpacing:".25em"}}>🔥 {rivalry.name.toUpperCase()}</p>
+                    <span className="inline-block w-3 h-2" style={{background:fixture.away.primaryColor, clipPath:"polygon(100% 0, 0 50%, 100% 100%)"}} />
+                  </div>
                 ) : (
                   <p className="text-center text-label text-white/50 mb-2">Próximo compromisso · {calendar.league}</p>
                 )}
@@ -3687,7 +3770,7 @@ function DashboardPage(){
             </div>
           ) : <div className="surface-1 soft-shadow p-6 text-center ink-dim">Preparando a próxima etapa da temporada...</div>}
 
-          <div className="card p-5">
+          <div id="nav-treino" className="card p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-display font-semibold text-steel-100">Atributos</h3>
               <div className="flex gap-1">{ATTR_TABS.map(tab=> <button key={tab} onClick={()=>setAttrTab(tab)} className={`px-3 py-1 rounded-full text-xs font-display ${attrTab===tab?"bg-touchline text-white":"text-steel-400 hover:text-steel-200"}`}>{tab}</button>)}</div>
@@ -3696,7 +3779,7 @@ function DashboardPage(){
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div id="nav-vida" className="space-y-6 min-w-0">
           <div className="card p-4 border-l-[3px]" style={{borderLeftColor:clubPrimary}}>
             <h3 className="font-display font-semibold text-steel-100 mb-3">🪪 Perfil</h3>
             {(()=>{
@@ -3712,6 +3795,40 @@ function DashboardPage(){
               );
             })()}
           </div>
+
+          {player.relationshipStatus && player.relationshipStatus!=="solteiro" && player.partner && (
+            <div className="surface-1 soft-shadow overflow-hidden">
+              <div className="p-5 flex items-center gap-4" style={{background:"linear-gradient(135deg, #E85D75, #C13E63)"}}>
+                <div className="w-16 h-16 rounded-full flex items-center justify-center font-display font-bold text-2xl shrink-0 soft-shadow" style={{background:"rgba(255,255,255,0.2)", color:"#fff"}}>
+                  {player.partner.name[0]}
+                </div>
+                <div>
+                  <p className="text-h2 text-white leading-tight">{player.partner.name}</p>
+                  <p className="text-xs text-white/75">{player.relationshipStatus==="namorando"?"Namorada":player.relationshipStatus==="noivo"?"Noiva":"Esposa"} · {player.partner.age} anos{player.children && player.children.length>0 ? ` · ${player.children.length} filho(s)` : ""}</p>
+                </div>
+              </div>
+              <div className="p-5">
+                <p className="text-xs ink-dim mb-4">{player.partner.profession} · {player.partner.personality}</p>
+                <div className="space-y-2.5 mb-4">
+                  {[["Amor","❤️",player.partner.love,"#E85D75"],["Confiança","🤝",player.partner.trust,"#3DDC84"],["Atração","💘",player.partner.attraction,"#B586E8"]].map(([label,icon,val,color])=>(
+                    <div key={label}>
+                      <div className="flex items-center justify-between text-[11px] ink-dim mb-1"><span>{icon} {label}</span><span className="stat-num">{val}</span></div>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{background:"var(--surface-2)"}}><div className="h-full rounded-full" style={{width:`${val}%`, background:color}} /></div>
+                    </div>
+                  ))}
+                </div>
+                <button className="text-xs text-red-500 hover:underline" onClick={()=>setShowBreakupMenu(v=>!v)}>Terminar relacionamento</button>
+                {showBreakupMenu && (
+                  <div className="mt-3 grid grid-cols-2 gap-1.5">
+                    {[["carreira","Carreira"],["distancia","Distância"],["confianca","Falta de confiança"],["discussao","Discussões"],["outra","Conheceu outra pessoa"]].map(([id,label])=>(
+                      <button key={id} onClick={()=>breakupRelationship(id)} className="text-[10px] px-2 py-1.5 rounded border border-pitch-700 bg-pitch-800 hover:border-state-down/60 text-steel-300">{label}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="card p-4 border-l-[3px]" style={{borderLeftColor:"#B8892E"}}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-display font-semibold text-steel-100">💰 Patrimônio</h3>
@@ -3721,40 +3838,28 @@ function DashboardPage(){
               <div><p className="eyebrow text-[10px]">Saldo</p><p className="stat-num text-steel-100 text-base">€{Math.round(player.money).toLocaleString("pt-BR")}</p></div>
               <div><p className="eyebrow text-[10px]">Salário/semana</p><p className="stat-num text-steel-100 text-base">€{Math.round(player.weeklySalary||0).toLocaleString("pt-BR")}</p></div>
             </div>
-            {player.relationshipStatus && player.relationshipStatus!=="solteiro" && player.partner && (
-              <div className="mb-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] text-steel-400">{player.relationshipStatus==="namorando"?`Namorando ${player.partner.name}`:player.relationshipStatus==="noivo"?`Noivo(a) de ${player.partner.name}`:`Casado(a) com ${player.partner.name}`}{player.children && player.children.length>0 ? ` · ${player.children.length} filho(s)` : ""}</p>
-                  <button className="text-[10px] text-state-down hover:underline shrink-0" onClick={()=>setShowBreakupMenu(v=>!v)}>Terminar</button>
-                </div>
-                <p className="text-[10px] text-steel-400">{player.partner.age} anos · {player.partner.profession} · {player.partner.personality}</p>
-                <div className="flex gap-2 mt-1 text-[10px] text-steel-400">
-                  <span>❤️ {player.partner.love}</span><span>💘 {player.partner.attraction}</span><span>🤝 {player.partner.trust}</span><span>😤 {player.partner.jealousy}</span>
-                </div>
-                {showBreakupMenu && (
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
-                    {[["carreira","Carreira"],["distancia","Distância"],["confianca","Falta de confiança"],["discussao","Discussões"],["outra","Conheceu outra pessoa"]].map(([id,label])=>(
-                      <button key={id} onClick={()=>breakupRelationship(id)} className="text-[10px] px-2 py-1.5 rounded border border-pitch-700 bg-pitch-800 hover:border-state-down/60 text-steel-300">{label}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             {player.possessions && player.possessions.length>0 && (
               <p className="text-[11px] text-steel-400 mb-2">{player.possessions.length} bem(ns) adquirido(s)</p>
             )}
             {showShop && (
-              <div className="space-y-2 mt-3 max-h-72 overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-2.5 mt-4 max-h-80 overflow-y-auto pr-1">
                 {SHOP_ITEMS.map(item=>{
                   const owned = (player.possessions||[]).some(p=>p.id===item.id);
                   const affordable = player.money>=item.cost;
+                  const stars = Math.max(1, Math.min(5, Math.round(item.popularity/2.5)));
                   return (
-                    <button key={item.id} disabled={!affordable} onClick={()=>buyItem(item)}
-                      className={`w-full text-left p-2.5 rounded-lg border flex items-center justify-between gap-2 transition-colors ${affordable?"border-pitch-700 bg-pitch-800 hover:border-touchline/60":"border-pitch-700 bg-pitch-800 opacity-40 cursor-not-allowed"}`}>
-                      <span className="flex items-center gap-2 text-xs text-steel-200">
-                        <span>{item.icon}</span>{item.name}{owned && <span className="text-state-up">✓</span>}
-                      </span>
-                      <span className="stat-num text-xs text-steel-100 shrink-0">€{item.cost.toLocaleString("pt-BR")}</span>
+                    <button key={item.id} disabled={!affordable} onClick={()=>setViewItem(item)}
+                      className={`text-left rounded-xl overflow-hidden transition-all ${affordable?"hover:-translate-y-0.5":"opacity-40 cursor-not-allowed"}`}
+                      style={{background:"var(--surface-2)", border:"1px solid var(--hairline)"}}>
+                      <div className="h-16 flex items-center justify-center text-3xl relative" style={{background:`linear-gradient(135deg, ${clubPrimary}22, ${clubPrimary}05)`}}>
+                        {item.icon}
+                        {owned && <span className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded-full text-white" style={{background:"#3DDC84"}}>✓</span>}
+                      </div>
+                      <div className="p-2.5">
+                        <p className="text-[11px] font-display font-semibold ink leading-tight mb-1">{item.name}</p>
+                        <p className="text-[10px] mb-1" style={{color:"#E8B23D"}}>{"★".repeat(stars)}<span style={{opacity:.25}}>{"★".repeat(5-stars)}</span></p>
+                        <p className="stat-num text-xs ink">€{item.cost.toLocaleString("pt-BR")}</p>
+                      </div>
                     </button>
                   );
                 })}
@@ -3876,15 +3981,40 @@ function DashboardPage(){
             </div>
           )}
           <div>
-            <h3 className="font-display font-semibold text-steel-100 mb-3">📰 Notícias</h3>
+            <h3 className="text-h2 ink mb-4">Notícias</h3>
             <div className="space-y-3">
-              {(showAllNews ? player.newsLog : player.newsLog.slice(0,4)).map(item=> <NewsCard key={item.id} item={item} />)}
+              {(showAllNews ? player.newsLog : player.newsLog.slice(0,4)).map((item,i)=> <NewsCard key={item.id} item={item} featured={i===0} />)}
               {player.newsLog.length===0 && <p className="text-xs text-steel-400">Nenhuma notícia ainda nesta carreira.</p>}
               {player.newsLog.length>4 && <button className="text-xs text-touchline hover:underline" onClick={()=>setShowAllNews(v=>!v)}>{showAllNews?"Ver menos":"Ver todas"}</button>}
             </div>
           </div>
         </div>
       </main>
+      <BottomNav />
+      {viewItem && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6" style={{background:"rgba(0,0,0,0.6)"}} onClick={()=>setViewItem(null)}>
+          <div className="w-full sm:max-w-sm sm:rounded-2xl overflow-hidden soft-shadow modal-in" style={{background:"var(--surface-1)"}} onClick={e=>e.stopPropagation()}>
+            <div className="h-36 flex items-center justify-center text-6xl relative" style={{background:`linear-gradient(135deg, ${clubPrimary}33, ${clubPrimary}08)`}}>
+              {viewItem.icon}
+            </div>
+            <div className="p-6">
+              <p className="text-label mb-1">{viewItem.category==="casa"?"Imóvel":viewItem.category==="carro"?"Veículo":"Acessório"}</p>
+              <h3 className="text-h2 ink mb-2">{viewItem.name}</h3>
+              <p className="mb-1" style={{color:"#E8B23D"}}>{"★".repeat(Math.max(1,Math.min(5,Math.round(viewItem.popularity/2.5))))}<span style={{opacity:.25}}>{"★".repeat(5-Math.max(1,Math.min(5,Math.round(viewItem.popularity/2.5))))}</span></p>
+              <p className="stat-num text-2xl ink mb-4">€{viewItem.cost.toLocaleString("pt-BR")}</p>
+              <p className="text-sm ink-dim mb-6">Aumenta sua popularidade com a torcida e seu moral ao adquirir.</p>
+              {(player.possessions||[]).some(p=>p.id===viewItem.id) ? (
+                <button className="btn-hero w-full" style={{background:"var(--surface-2)", color:"var(--ink-dim)"}} disabled>Já adquirido</button>
+              ) : (
+                <div className="flex gap-2">
+                  <button className="btn-hero flex-1" style={{background:"var(--surface-2)", color:"var(--ink-dim)", border:"1px solid var(--hairline)"}} onClick={()=>setViewItem(null)}>Fechar</button>
+                  <button className="btn-hero flex-1 text-white" style={{background:clubPrimary, opacity: player.money>=viewItem.cost?1:.4}} disabled={player.money<viewItem.cost} onClick={()=>{ buyItem(viewItem); setViewItem(null); }}>Comprar</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4643,9 +4773,23 @@ function MatchPage(){
       {(()=>{ const rivalry = !pendingMatch.isNational && !pendingMatch.isWorldCup ? findRivalry(homeClub.id, awayClub.id) : null;
       return (
       <div className="relative -mt-14 sm:-mt-16 z-10 px-4">
-        <div className="max-w-3xl mx-auto rounded-2xl glass soft-shadow overflow-hidden" style={{border:"1px solid rgba(255,255,255,0.08)"}}>
-          {rivalry && <p className="text-center text-label pt-3" style={{color:"#D9A441", letterSpacing:".25em"}}>🔥 {rivalry.name.toUpperCase()}</p>}
-          <div className="grid grid-cols-3 items-center px-4 sm:px-8 py-5 sm:py-6">
+        <div className="max-w-3xl mx-auto rounded-2xl glass soft-shadow overflow-hidden relative" style={{border: rivalry?"1px solid rgba(217,164,65,0.35)":"1px solid rgba(255,255,255,0.08)"}}>
+          {rivalry && (
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <div className="absolute inset-0" style={{background:`linear-gradient(90deg, ${homeClub.primaryColor}22, transparent 30%, transparent 70%, ${awayClub.primaryColor}22)`}} />
+              {[...Array(6)].map((_,i)=>(
+                <span key={i} className="absolute rounded-full drift-particle" style={{ width:`${30+i*8}px`, height:`${30+i*8}px`, left: i%2===0?`${2+i*2}%`:`${94-i*2}%`, bottom:"-10%", background:"radial-gradient(circle, rgba(255,255,255,0.10), transparent 70%)", animationDuration:`${4+i}s`, animationDelay:`${i*0.5}s` }} />
+              ))}
+            </div>
+          )}
+          {rivalry && (
+            <div className="relative flex items-center justify-center gap-2 pt-3">
+              <span className="inline-block w-3 h-2" style={{background:homeClub.primaryColor, clipPath:"polygon(0 0, 100% 50%, 0 100%)"}} />
+              <p className="text-center text-label" style={{color:"#D9A441", letterSpacing:".25em"}}>🔥 {rivalry.name.toUpperCase()}</p>
+              <span className="inline-block w-3 h-2" style={{background:awayClub.primaryColor, clipPath:"polygon(100% 0, 0 50%, 100% 100%)"}} />
+            </div>
+          )}
+          <div className="grid grid-cols-3 items-center px-4 sm:px-8 py-5 sm:py-6 relative">
             <div className="flex flex-col items-center gap-2">
               <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center font-display font-bold text-xs sm:text-sm" style={{backgroundColor:homeClub.primaryColor, color:homeClub.secondaryColor}}>
                 {homeClub.name.split(" ").map(w=>w[0]).slice(0,2).join("")}
@@ -4673,7 +4817,7 @@ function MatchPage(){
 
       <div className="px-4 pt-6 pb-6">
       <div className="max-w-5xl mx-auto grid lg:grid-cols-[1fr_280px] gap-5">
-        <div>
+        <div className="min-w-0">
 
           {subPhase==="intro" && (()=>{
             const isFinalMatch = /(^|—\s)Final$/i.test((pendingMatch.competition||"").trim());
@@ -4874,16 +5018,23 @@ function MatchPage(){
           )}
 
           {subPhase==="press" && pendingResult && pressScenario && (
-            <div className="match-panel p-6 fade-in">
-              <span className="eyebrow">Sala de imprensa</span>
-              <p className="text-steel-100 mt-2 mb-6">"{pressScenario.scenario.question}"</p>
-              <div className="grid gap-3">
-                {pressScenario.scenario.answers.map(a=>(
-                  <button key={a.id} disabled={pressAnswered} onClick={()=>{ setPressAnswered(true); finalizeAfterPress(a); }}
-                    className="text-left p-4 rounded-lg border border-pitch-700 bg-pitch-800 hover:border-touchline/60 transition-colors disabled:opacity-50">
-                    <p className="text-steel-100">{a.label}</p>
-                  </button>
+            <div className="relative overflow-hidden rounded-2xl soft-shadow fade-in" style={{background:"#101214"}}>
+              <div className="absolute inset-0 opacity-[0.06] flex flex-wrap content-start gap-x-8 gap-y-6 p-4 pointer-events-none select-none" style={{transform:"rotate(-6deg) scale(1.3)"}}>
+                {[...Array(24)].map((_,i)=>(
+                  <span key={i} className="text-white text-xs font-display font-bold uppercase whitespace-nowrap">{["VELOX","BANCO ATLAS","AERO SPORTS","NEXA","ORBIT","TITANIUM"][i%6]}</span>
                 ))}
+              </div>
+              <div className="relative p-6 sm:p-7">
+                <span className="text-label" style={{color:"var(--club-primary)"}}>🎙️ Coletiva pós-jogo</span>
+                <p className="text-white text-lg mt-3 mb-6 font-medium">"{pressScenario.scenario.question}"</p>
+                <div className="grid gap-2.5">
+                  {pressScenario.scenario.answers.map(a=>(
+                    <button key={a.id} disabled={pressAnswered} onClick={()=>{ setPressAnswered(true); finalizeAfterPress(a); }}
+                      className="text-left p-4 rounded-xl transition-colors disabled:opacity-40" style={{background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)"}}>
+                      <p className="text-white/90 text-sm">{a.label}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -4905,7 +5056,7 @@ function MatchPage(){
         </div>
 
         {/* sidebar: campo + estatísticas + outros jogos */}
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           {!["intro","fulltime","press"].includes(subPhase) && (
             <div className="match-panel p-3">
               <div className="grid grid-cols-2 gap-2 mb-3">
@@ -4946,14 +5097,24 @@ function MatchPage(){
               <span>Artilharia do campeonato</span>
               <span className="text-steel-400">{showTopScorers?"−":"+"}</span>
             </button>
-            {showTopScorers && (
-              <div className="space-y-1.5">
-                {topScorers.map((s,i)=>(
-                  <div key={i} className={`flex items-center justify-between text-xs gap-2 ${s.isPlayer?"text-touchline font-semibold":"text-steel-300"}`}>
-                    <span className="truncate min-w-0"><span className="shrink-0">{i+1}. {s.name}</span><span className="text-steel-400 font-normal"> — {s.club}</span></span>
-                    <span className="stat-num shrink-0">{s.goals}</span>
+            {showTopScorers && topScorers.length>0 && (
+              <div>
+                <div className="flex items-center gap-3 pb-3 mb-2" style={{borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
+                  <span className="text-hero" style={{fontSize:"2.25rem", color:"var(--club-primary)"}}>1</span>
+                  <div className="min-w-0">
+                    <p className={`font-display font-bold truncate ${topScorers[0].isPlayer?"":"text-steel-100"}`} style={topScorers[0].isPlayer?{color:"var(--club-primary)"}:{}}>{topScorers[0].name}</p>
+                    <p className="text-[11px] text-steel-400 truncate">{topScorers[0].club}</p>
                   </div>
-                ))}
+                  <p className="stat-num text-2xl text-steel-100 ml-auto shrink-0">{topScorers[0].goals}</p>
+                </div>
+                <div className="space-y-1.5">
+                  {topScorers.slice(1).map((s,i)=>(
+                    <div key={i} className={`flex items-center justify-between text-xs gap-2 ${s.isPlayer?"text-touchline font-semibold":"text-steel-300"}`}>
+                      <span className="truncate min-w-0"><span className="shrink-0">{i+2}. {s.name}</span><span className="text-steel-400 font-normal"> — {s.club}</span></span>
+                      <span className="stat-num shrink-0">{s.goals}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -4968,32 +5129,41 @@ function MatchPage(){
 // FIM DE TEMPORADA + MERCADO DE TRANSFERÊNCIAS
 // ============================================================
 function Stat({ label, value }){
-  return <div className="card p-3"><p className="stat-num text-xl text-steel-100">{value}</p><p className="text-[10px] text-steel-400 uppercase tracking-wide mt-0.5">{label}</p></div>;
+  return <div><p className="stat-num text-2xl ink">{value}</p><p className="text-label mt-0.5">{label}</p></div>;
 }
 
 function TransferOfferCard({ offer, onAccept, onReject }){
   const isLoan = offer.type==="emprestimo";
+  const interestLabel = offer.startingChance>=70 ? "Interesse alto" : offer.startingChance>=40 ? "Interesse médio" : "Interesse moderado";
+  const interestColor = offer.startingChance>=70 ? "#3DDC84" : offer.startingChance>=40 ? "#E8B23D" : "#8E939B";
   return (
-    <div className="card p-4">
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center font-display font-bold text-xs shrink-0" style={{backgroundColor:offer.club.primaryColor,color:offer.club.secondaryColor}}>
-          {offer.club.name.split(" ").map(w=>w[0]).slice(0,2).join("")}
+    <div className="surface-1 soft-shadow overflow-hidden">
+      <div className="p-5 relative overflow-hidden" style={{background:`linear-gradient(140deg, ${offer.club.primaryColor}, ${offer.club.primaryColor}CC)`}}>
+        <div className="flex items-center justify-between relative">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center font-display font-bold text-sm shrink-0 soft-shadow" style={{backgroundColor:"rgba(255,255,255,0.15)", color:offer.club.secondaryColor}}>
+              {offer.club.name.split(" ").map(w=>w[0]).slice(0,2).join("")}
+            </div>
+            <div>
+              <p className="text-h2 text-white leading-tight">{offer.club.name}</p>
+              <p className="text-xs text-white/70">{offer.club.league}</p>
+            </div>
+          </div>
+          <span className="text-[10px] font-display uppercase px-2.5 py-1 rounded-full shrink-0" style={{background:"rgba(255,255,255,0.18)", color:"#fff"}}>{isLoan?"Empréstimo":"Compra"}</span>
         </div>
-        <div className="flex-1">
-          <p className="font-display font-semibold text-steel-100">{offer.club.name}</p>
-          <p className="text-xs text-steel-400">{offer.club.league}</p>
+      </div>
+      <div className="p-5">
+        <p className="text-label mb-3" style={{color:interestColor}}>● {interestLabel}</p>
+        <div className="grid grid-cols-2 gap-4 mb-5">
+          <div><p className="stat-num text-lg ink">€{offer.salaryPerWeek.toLocaleString("pt-BR")}</p><p className="text-label">Salário/semana</p></div>
+          <div><p className="stat-num text-lg ink">{offer.durationSeasons} temp.</p><p className="text-label">Contrato</p></div>
+          <div><p className="stat-num text-lg ink">{offer.squadRole}</p><p className="text-label">Papel no elenco</p></div>
+          <div><p className="stat-num text-lg ink">{offer.startingChance}%</p><p className="text-label">Chance de titularidade</p></div>
         </div>
-        <span className={`text-[10px] font-display uppercase px-2 py-1 rounded shrink-0 ${isLoan?"bg-touchline/15 text-touchline":"bg-state-up/15 text-state-up"}`}>{isLoan?"Empréstimo":"Compra"}</span>
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-xs text-steel-300 mb-4">
-        <p>Salário/semana: <span className="text-steel-100 font-mono">€{offer.salaryPerWeek.toLocaleString("pt-BR")}</span></p>
-        <p>Contrato: <span className="text-steel-100">{offer.durationSeasons} temporada{offer.durationSeasons>1?"s":""}</span></p>
-        <p>Papel no elenco: <span className="text-steel-100">{offer.squadRole}</span></p>
-        <p>Chance de titularidade: <span className="text-steel-100">{offer.startingChance}%</span></p>
-      </div>
-      <div className="flex gap-2">
-        <button className="btn-primary !py-2 flex-1 text-xs" onClick={()=>onAccept(offer)}>Aceitar</button>
-        <button className="btn-secondary !py-2 flex-1 text-xs" onClick={()=>onReject(offer)}>Recusar</button>
+        <div className="flex gap-2">
+          <button className="btn-hero text-white flex-1 text-xs" style={{background:offer.club.primaryColor}} onClick={()=>onAccept(offer)}>Negociar</button>
+          <button className="btn-hero flex-1 text-xs" style={{background:"var(--surface-2)", color:"var(--ink-dim)", border:"1px solid var(--hairline)"}} onClick={()=>onReject(offer)}>Recusar</button>
+        </div>
       </div>
     </div>
   );
@@ -5072,17 +5242,31 @@ function SeasonSummaryPage(){
   }
   function rejectOffer(offer){ setTransferOffers(transferOffers.filter(o=>o.id!==offer.id)); }
 
+  const isChampion = seasonAwards.some(a=>a.id==="campeao");
   return (
-    <div className="min-h-screen bg-pitch-950 flex flex-col items-center px-4 py-10">
+    <div className="app-shell flex flex-col items-center px-4 py-10 sm:py-16">
       <div className="max-w-lg w-full text-center">
-        <span className="eyebrow">Fim da temporada {lastSeason.season}</span>
-        <h1 className="font-display text-3xl font-bold text-steel-100 mt-1 mb-8">{career.player.firstName} {career.player.lastName}</h1>
-        <div className="flex justify-center mb-8"><OverallCircle value={lastSeason.overallEnd} delta={overallDelta} size={140} /></div>
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        {isChampion ? (
+          <div className="relative rounded-3xl overflow-hidden soft-shadow mb-8 -mx-2" style={{background:`linear-gradient(160deg, #0E1012, ${career.player.club.primaryColor}33 60%, #0E1012)`}}>
+            {[...Array(18)].map((_,i)=>(
+              <span key={i} className="absolute w-2 h-2 drift-particle" style={{ left:`${(i*11+4)%100}%`, top:`${(i*17)%40}%`, background: i%2===0?"#E8B23D":"#fff", animationDuration:`${2+(i%4)*.4}s`, animationDelay:`${(i%6)*.15}s`, borderRadius: i%3===0?"9999px":"1px" }} />
+            ))}
+            <div className="relative px-6 py-10">
+              <p className="text-4xl mb-3">🏆</p>
+              <p className="text-label text-white/60 mb-1">Campeão</p>
+              <h1 className="text-hero text-white" style={{fontSize:"clamp(1.75rem,5vw,2.75rem)"}}>{seasonAwards.find(a=>a.id==="campeao").title.replace("Campeão do ","")}</h1>
+            </div>
+          </div>
+        ) : (
+          <p className="text-label mb-2">Fim da temporada {lastSeason.season}</p>
+        )}
+        <h1 className="text-h1 ink mt-1 mb-8">{career.player.firstName} {career.player.lastName}</h1>
+        <div className="flex justify-center mb-9"><OverallCircle value={lastSeason.overallEnd} delta={overallDelta} size={140} /></div>
+        <div className="grid grid-cols-3 gap-y-6 mb-9">
           <Stat label="Jogos" value={lastSeason.matches} /><Stat label="Gols" value={lastSeason.goals} /><Stat label="Assistências" value={lastSeason.assists} />
           <Stat label="Nota média" value={lastSeason.averageRating} /><Stat label="Cartões amarelos" value={lastSeason.yellowCards} /><Stat label="Lesões" value={lastSeason.injuries} />
         </div>
-        <p className="text-sm text-steel-400 mb-8">Valor de mercado estimado: <span className="text-steel-100 font-display">{lastSeason.marketValue.toLocaleString("pt-BR",{style:"currency",currency:"EUR",maximumFractionDigits:0})}</span></p>
+        <p className="text-sm ink-dim mb-8">Valor de mercado estimado: <span className="ink font-display">{lastSeason.marketValue.toLocaleString("pt-BR",{style:"currency",currency:"EUR",maximumFractionDigits:0})}</span></p>
 
         {(seasonAwards.length>0 || gotCallUp || divisionMilestone || qualificationMilestone) && (
           <div className="text-left mb-8">
@@ -5191,45 +5375,52 @@ function RetirementPage(){
   const legacy = computeLegacy(peakOverall, player.achievements.length, player.seasons.length);
 
   return (
-    <div className="min-h-screen bg-pitch-950 flex flex-col items-center px-4 py-14">
+    <div className="min-h-screen flex flex-col items-center px-4 py-14" style={{background:"#0A0C0E"}}>
       <div className="max-w-xl w-full text-center">
-        <div className="flex justify-center mb-4">
-          <div className="rounded-xl overflow-hidden bg-pitch-850 border border-pitch-700 p-2">
-            <PlayerAvatar appearance={player.appearance} club={player.club} number={player.preferredNumber} position={player.position} size={100} />
+        <div className="flex justify-center mb-6">
+          <div className="rounded-2xl overflow-hidden club-ring soft-shadow" style={{boxShadow:`0 0 0 2px ${player.club.primaryColor}, 0 24px 48px -20px ${player.club.primaryColor}88`}}>
+            <PlayerAvatar appearance={player.appearance} club={player.club} number={player.preferredNumber} position={player.position} size={110} />
           </div>
         </div>
-        <span className="eyebrow">Fim de carreira</span>
-        <h1 className="font-display text-4xl font-bold text-steel-100 mt-2 mb-2">{player.firstName} {player.lastName}</h1>
-        <p className="text-steel-400 mb-1">Aposentado aos {player.age} anos, por {REASON_LABEL[career.retirementReason]||"decisão pessoal"}.</p>
-        <p className="text-crest-gold font-display text-lg mb-10">{legacy}</p>
-        <div className="grid grid-cols-3 gap-4 mb-10">
-          <Stat label="Temporadas" value={player.seasons.length} /><Stat label="Jogos" value={totalMatches} /><Stat label="Gols" value={totalGoals} />
-          <Stat label="Assistências" value={totalAssists} /><Stat label="Overall máximo" value={peakOverall} /><Stat label="Clubes" value={player.clubHistory.length} />
-          {(player.caps>0) && <><Stat label="Convocações" value={player.caps} /><Stat label="Gols pela seleção" value={player.interGoals} /></>}
+        <p className="text-label text-white/50 mb-2">Fim de carreira</p>
+        <h1 className="text-hero text-white mb-3" style={{fontSize:"clamp(2rem,6vw,3.25rem)"}}>{player.firstName} {player.lastName}</h1>
+        <p className="text-white/50 mb-1 text-sm">Aposentado aos {player.age} anos, por {REASON_LABEL[career.retirementReason]||"decisão pessoal"}.</p>
+        <p className="font-display text-lg mb-12" style={{color:"#E8B23D"}}>{legacy}</p>
+        <div className="grid grid-cols-3 gap-y-8 mb-12">
+          <div><p className="text-hero text-white" style={{fontSize:"1.85rem"}}>{player.seasons.length}</p><p className="text-label text-white/45">Temporadas</p></div>
+          <div><p className="text-hero text-white" style={{fontSize:"1.85rem"}}>{totalMatches}</p><p className="text-label text-white/45">Jogos</p></div>
+          <div><p className="text-hero text-white" style={{fontSize:"1.85rem"}}>{totalGoals}</p><p className="text-label text-white/45">Gols</p></div>
+          <div><p className="text-hero text-white" style={{fontSize:"1.85rem"}}>{totalAssists}</p><p className="text-label text-white/45">Assistências</p></div>
+          <div><p className="text-hero text-white" style={{fontSize:"1.85rem"}}>{peakOverall}</p><p className="text-label text-white/45">Overall máximo</p></div>
+          <div><p className="text-hero text-white" style={{fontSize:"1.85rem"}}>{player.clubHistory.length}</p><p className="text-label text-white/45">Clubes</p></div>
+          {(player.caps>0) && <>
+            <div><p className="text-hero text-white" style={{fontSize:"1.85rem"}}>{player.caps}</p><p className="text-label text-white/45">Convocações</p></div>
+            <div><p className="text-hero text-white" style={{fontSize:"1.85rem"}}>{player.interGoals}</p><p className="text-label text-white/45">Gols pela seleção</p></div>
+          </>}
         </div>
         {player.achievements && player.achievements.length>0 && (
-          <div className="card p-5 text-left mb-6">
+          <div className="match-panel p-5 text-left mb-6">
             <h3 className="font-display font-semibold text-steel-100 mb-3">Prêmios da carreira</h3>
             <ul className="space-y-2 text-sm text-steel-300">
               {player.achievements.map((a,i)=>(<li key={i} className="flex gap-2"><span>{a.icon||"🏆"}</span><span>{a.title} — Temporada {a.season}</span></li>))}
             </ul>
           </div>
         )}
-        <div className="card p-5 text-left mb-6">
+        <div className="match-panel p-5 text-left mb-6">
           <h3 className="font-display font-semibold text-steel-100 mb-3">Passagem por clubes</h3>
           <ul className="space-y-1 text-sm text-steel-300">
             {player.clubHistory.map((stint,i)=>(<li key={i}>{stint.clubName} — temporada{stint.toSeason?`s ${stint.fromSeason} a ${stint.toSeason}`:` ${stint.fromSeason} em diante`}</li>))}
           </ul>
         </div>
         {player.milestones && player.milestones.length>0 && (
-          <div className="card p-5 text-left mb-10">
+          <div className="match-panel p-5 text-left mb-10">
             <h3 className="font-display font-semibold text-steel-100 mb-4">Momentos que ficaram na memória</h3>
             <CareerTimeline milestones={player.milestones} />
           </div>
         )}
         <div className="flex justify-center gap-3">
-          <button className="btn-secondary" onClick={()=>exportCareer(career)}>Exportar retrospectiva</button>
-          <button className="btn-primary" onClick={()=>setScreen("start")}>Nova carreira</button>
+          <button className="btn-hero" style={{background:"var(--surface-2)", color:"var(--ink-dim)", border:"1px solid rgba(255,255,255,0.15)"}} onClick={()=>exportCareer(career)}>Exportar retrospectiva</button>
+          <button className="btn-hero text-white soft-shadow" style={{background:player.club.primaryColor}} onClick={()=>setScreen("start")}>Nova carreira</button>
         </div>
       </div>
     </div>
