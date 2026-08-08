@@ -667,6 +667,9 @@ function findPlayerCupTie(cup){
   return round.find(t=>t.home.id===cup.playerClubId || t.away.id===cup.playerClubId) || null;
 }
 function advanceCup(cup, playerWon, playerClub, opponentClub){
+  // Consome a semana agendada assim que a partida é resolvida — evita que o cronograma fique
+  // "preso" num número fixo que pode nunca mais bater exatamente com a semana atual.
+  cup = { ...cup, scheduledWeeks: (cup.scheduledWeeks||[]).slice(1) };
   const round = cup.rounds[cup.currentRoundIdx].map(t=>{
     if(t.home.id===cup.playerClubId || t.away.id===cup.playerClubId){
       return { ...t, resolved:true, winner: playerWon?playerClub:opponentClub };
@@ -904,6 +907,10 @@ function findPlayerContinentalTie(cup){
   return null;
 }
 function advanceContinentalCup(cup, playerWon, playerClub, opponentClub, homeGoals, awayGoals){
+  // Mesmo motivo do advanceCup: consome a semana agendada na hora, em vez de depender de bater
+  // um número calculado lá no início da temporada (isso é o que fazia a final nunca acontecer
+  // quando a linha do tempo desviava um pouco do previsto).
+  cup = { ...cup, scheduledWeeks: (cup.scheduledWeeks||[]).slice(1) };
   if(cup.phase==="groups"){
     const newGroupRounds = cup.groupRounds.map((rounds, gi)=>{
       const round = rounds[cup.currentGroupRound].map(m=>{
@@ -3042,14 +3049,14 @@ function DashboardPage(){
   const fixture = isMatchWeek ? findPlayerFixture(calendar, player.club.id, currentRoundIdx) : null;
   const isByeWeek = isMatchWeek && !fixture;
   const matchRole = fixture ? determineMatchRole(player) : "titular";
-  const domesticCupTie = (!isMatchWeek && career.cup && !career.cup.eliminated && !career.cup.champion && career.cup.scheduledWeeks.includes(career.weekIndex))
+  const domesticCupTie = (!isMatchWeek && career.cup && !career.cup.eliminated && !career.cup.champion && career.cup.scheduledWeeks.length>0 && career.weekIndex>=career.cup.scheduledWeeks[0])
     ? findPlayerCupTie(career.cup) : null;
-  const continentalCupTie = (!domesticCupTie && !isMatchWeek && career.continentalCup && !career.continentalCup.eliminated && !career.continentalCup.champion && career.continentalCup.scheduledWeeks.includes(career.weekIndex))
+  const continentalCupTie = (!domesticCupTie && !isMatchWeek && career.continentalCup && !career.continentalCup.eliminated && !career.continentalCup.champion && career.continentalCup.scheduledWeeks.length>0 && career.weekIndex>=career.continentalCup.scheduledWeeks[0])
     ? findPlayerContinentalTie(career.continentalCup) : null;
   const cupTie = domesticCupTie || continentalCupTie;
   const cupKey = domesticCupTie ? "cup" : "continentalCup";
   const activeCup = domesticCupTie ? career.cup : career.continentalCup;
-  const worldCupTie = (!isMatchWeek && career.worldCup && !career.worldCup.champion && !career.worldCup.eliminated && career.worldCup.scheduledWeeks.includes(career.weekIndex))
+  const worldCupTie = (!isMatchWeek && career.worldCup && !career.worldCup.champion && !career.worldCup.eliminated && career.worldCup.scheduledWeeks.length>0 && career.weekIndex>=career.worldCup.scheduledWeeks[0])
     ? findPlayerContinentalTie(career.worldCup) : null;
   const nationalMatchDue = (!isMatchWeek && !cupTie && !worldCupTie && career.nationalTeam && career.nationalTeam.matchesRemaining>0 && career.nationalTeam.scheduledWeeks.includes(career.weekIndex));
   const isTrainingWeek = !isMatchWeek && !activeInjury && !cupTie && !nationalMatchDue && !worldCupTie;
