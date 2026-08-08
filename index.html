@@ -127,6 +127,16 @@
   .tab-underline::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--club-primary); transform:scaleX(0); transition:transform .25s ease; }
   .tab-underline[data-active="true"]::after { transform:scaleX(1); }
   .bottom-nav-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+  /* Painéis escuros da tela de partida (intervalo, pênaltis, fim de jogo, coletiva, etc.) */
+  .match-panel { background: rgba(255,255,255,0.045); border:1px solid rgba(255,255,255,0.09); border-radius:1rem; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .match-panel .text-steel-100, .match-panel .text-steel-200 { color:#F1F2F4 !important; }
+  .match-panel .text-steel-300 { color:#C7CBD1 !important; }
+  .match-panel .text-steel-400 { color:#8E939B !important; }
+  .match-panel .eyebrow { color:#8E939B !important; }
+  .match-panel .bg-pitch-700, .match-panel .border-pitch-700 { border-color: rgba(255,255,255,0.12) !important; }
+  .match-panel .bg-pitch-800 { background: rgba(255,255,255,0.05) !important; }
+  .match-panel .hover\:border-touchline\/60:hover { border-color: var(--club-primary) !important; }
 </style>
 </head>
 <body class="bg-pitch-950">
@@ -3645,19 +3655,28 @@ function DashboardPage(){
             </div>
             );
           })() : isTrainingWeek ? (
-            <div className="card overflow-hidden">
-              <div className="h-24 sm:h-28">
+            <div className="surface-1 soft-shadow overflow-hidden">
+              <div className="h-40 sm:h-52 relative">
                 <TrainingGroundScene weather={["sol","nublado","chuva"][(career.weekIndex+career.currentSeason)%3]} clubPrimary={clubPrimary} />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent" />
+                <div className="absolute left-6 bottom-4 right-6 flex items-end justify-between">
+                  <div>
+                    <p className="text-label text-white/70">Semana livre · CT do {player.club.name}</p>
+                    <h2 className="text-h2 text-white">Treino de hoje</h2>
+                  </div>
+                  <div className="text-right shrink-0 hidden sm:block">
+                    <p className="text-hero text-white" style={{fontSize:"2rem"}}>{Math.round(player.energy)}%</p>
+                    <p className="text-label text-white/70">Energia</p>
+                  </div>
+                </div>
               </div>
-              <div className="p-6">
-              <span className="eyebrow">Semana livre · Centro de treinamento do {player.club.name}</span>
-              <h2 className="font-display text-2xl font-semibold text-steel-100 mt-1 mb-4">Como você vai se preparar?</h2>
-              <div className="grid sm:grid-cols-2 gap-3">
+              <div className="p-5 sm:p-6">
+              <div className="flex gap-3.5 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
                 {TRAINING_OPTIONS.filter(opt=> (!opt.hiddenFor || !opt.hiddenFor.includes(player.position)) && (!opt.onlyFor || opt.onlyFor.includes(player.position))).map(opt=>(
-                  <button key={opt.id} onClick={()=>handleTraining(opt.id)} className="text-left p-4 rounded-lg border border-pitch-700 bg-pitch-800 hover:border-touchline/60 transition-colors">
-                    <p className="font-display font-semibold text-steel-100">{opt.label}</p>
-                    <p className="text-xs text-steel-400 mt-1 mb-2">{opt.description}</p>
-                    <div className="flex gap-3 text-[11px] text-steel-400">
+                  <button key={opt.id} onClick={()=>handleTraining(opt.id)} className="text-left p-4 rounded-xl hover:-translate-y-0.5 transition-all shrink-0 w-56 snap-start" style={{background:"var(--surface-2)", border:"1px solid var(--hairline)"}}>
+                    <p className="font-display font-semibold ink">{opt.label}</p>
+                    <p className="text-xs ink-dim mt-1 mb-3">{opt.description}</p>
+                    <div className="flex gap-3 text-[11px] ink-dim">
                       <span>Energia: {opt.energyCost>0?`-${opt.energyCost}`:`+${-opt.energyCost}`}</span>
                       {opt.injuryRisk>0 && <span>Risco: {opt.injuryRisk}%</span>}
                     </div>
@@ -3666,7 +3685,7 @@ function DashboardPage(){
               </div>
               </div>
             </div>
-          ) : <div className="card p-6 text-center text-steel-400">Preparando a próxima etapa da temporada...</div>}
+          ) : <div className="surface-1 soft-shadow p-6 text-center ink-dim">Preparando a próxima etapa da temporada...</div>}
 
           <div className="card p-5">
             <div className="flex items-center justify-between mb-3">
@@ -4659,7 +4678,7 @@ function MatchPage(){
           {subPhase==="intro" && (()=>{
             const isFinalMatch = /(^|—\s)Final$/i.test((pendingMatch.competition||"").trim());
             return (
-            <div className={`card p-6 text-center relative overflow-hidden ${isFinalMatch?"border-2":""}`} style={isFinalMatch?{borderColor:"#B8892E"}:{}}>
+            <div className={`match-panel p-6 text-center relative overflow-hidden ${isFinalMatch?"border-2":""}`} style={isFinalMatch?{borderColor:"#B8892E"}:{}}>
               {isFinalMatch && <div className="absolute inset-0 opacity-[0.12] pointer-events-none" style={{background:"linear-gradient(135deg, #B8892E, transparent 60%)"}} />}
               {isFinalMatch && <p className="relative font-display font-bold text-sm tracking-[0.2em] mb-3" style={{color:"#B8892E"}}>🏆 É DECISÃO — {pendingMatch.competition.toUpperCase()} 🏆</p>}
               <p className="text-steel-300 mb-2 relative">{pendingMatch.isHome?"Jogo em casa":"Jogo fora de casa"} contra o {pendingMatch.opponentClub.name}.</p>
@@ -4672,7 +4691,7 @@ function MatchPage(){
           })()}
 
           {subPhase==="auto" && currentTick && (
-            <div className="card p-6 text-center fade-in">
+            <div className="match-panel p-6 text-center fade-in">
               <span className="eyebrow">{beat.minute}'</span>
               <p className={`font-display text-lg mt-2 mb-2 ${currentTick.kind.includes("Goal")?"text-state-up":"text-steel-100"}`}>{currentTick.text}</p>
               {crowdLine && <p className="text-xs text-steel-400 italic mb-4">{crowdLine}</p>}
@@ -4691,7 +4710,7 @@ function MatchPage(){
           )}
 
           {subPhase==="halftime" && (
-            <div className="card p-6 text-center fade-in">
+            <div className="match-panel p-6 text-center fade-in">
               <span className="eyebrow">Intervalo</span>
               <h2 className="font-display text-2xl font-semibold text-steel-100 mt-2 mb-4">{homeClub.name} {homeGoals} — {awayGoals} {awayClub.name}</h2>
               <p className="text-sm text-steel-400 mb-6">Os times vão para o vestiário. Segundo tempo a seguir.</p>
@@ -4700,7 +4719,7 @@ function MatchPage(){
           )}
 
           {subPhase==="substitution" && (
-            <div className="card p-6 text-center fade-in">
+            <div className="match-panel p-6 text-center fade-in">
               <span className="eyebrow">Substituição</span>
               <h2 className="font-display text-xl font-semibold text-state-up mt-2 mb-4">Você entra em campo!</h2>
               <button className="btn-primary" onClick={continueFromSubstitution}>Continuar</button>
@@ -4736,7 +4755,7 @@ function MatchPage(){
           )}
 
           {subPhase==="corner-choice" && pendingSetPiece && (
-            <div className="card p-6 fade-in">
+            <div className="match-panel p-6 fade-in">
               <span className="eyebrow">{pendingSetPiece.kind==="penalty"?"Cobrança de pênalti":"Cobrança de falta"}</span>
               <p className="text-steel-100 mt-2 mb-6">Escolha o canto da cobrança. Confie no instinto — não dá pra saber o resultado antes de bater.</p>
               <div className="grid sm:grid-cols-3 gap-3">
@@ -4754,7 +4773,7 @@ function MatchPage(){
           )}
 
           {subPhase==="rolling" && (
-            <div className="card p-10 text-center fade-in">
+            <div className="match-panel p-10 text-center fade-in">
               <div className="flex items-center justify-center gap-2 mb-4">
                 <span className="w-2.5 h-2.5 rounded-full bg-touchline pulse-dot" style={{animationDelay:"0s"}} />
                 <span className="w-2.5 h-2.5 rounded-full bg-touchline pulse-dot" style={{animationDelay:".15s"}} />
@@ -4765,7 +4784,7 @@ function MatchPage(){
           )}
 
           {subPhase==="resolved" && currentOutcome && (
-            <div className="card p-6 text-center fade-in">
+            <div className="match-panel p-6 text-center fade-in">
               <p className={`font-display text-lg mb-2 ${currentOutcome.success?"text-state-up":"text-steel-200"}`}>{currentOutcome.text}</p>
               {crowdLine && <p className="text-xs text-steel-400 italic mb-4">{crowdLine}</p>}
               <button className="btn-primary mt-2" onClick={continueFromDecision}>Continuar partida</button>
@@ -4773,7 +4792,7 @@ function MatchPage(){
           )}
 
           {subPhase==="fulltime" && (
-            <div className="card p-6 text-center">
+            <div className="match-panel p-6 text-center">
               <span className="eyebrow">Fim de jogo</span>
               <h2 className="font-display text-2xl font-semibold text-steel-100 mt-2 mb-1">{homeClub.name} {homeGoals} — {awayGoals} {awayClub.name}</h2>
               {(()=>{
@@ -4809,7 +4828,7 @@ function MatchPage(){
           )}
 
           {subPhase==="penalties" && shootout && (
-            <div className="card p-6 text-center fade-in">
+            <div className="match-panel p-6 text-center fade-in">
               <span className="eyebrow">Disputa de pênaltis</span>
               <h2 className="font-display text-3xl font-bold text-steel-100 mt-2 mb-1 stat-num">
                 {shootout.homeKicks.filter(Boolean).length} — {shootout.awayKicks.filter(Boolean).length}
@@ -4855,7 +4874,7 @@ function MatchPage(){
           )}
 
           {subPhase==="press" && pendingResult && pressScenario && (
-            <div className="card p-6 fade-in">
+            <div className="match-panel p-6 fade-in">
               <span className="eyebrow">Sala de imprensa</span>
               <p className="text-steel-100 mt-2 mb-6">"{pressScenario.scenario.question}"</p>
               <div className="grid gap-3">
@@ -4871,7 +4890,7 @@ function MatchPage(){
 
           {/* linha do tempo */}
           {log.length>0 && (
-            <div className="card p-4 mt-4">
+            <div className="match-panel p-4 mt-4">
               <h3 className="eyebrow mb-3">Linha do tempo</h3>
               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {log.map((l,i)=>(
@@ -4888,7 +4907,7 @@ function MatchPage(){
         {/* sidebar: campo + estatísticas + outros jogos */}
         <div className="space-y-4">
           {!["intro","fulltime","press"].includes(subPhase) && (
-            <div className="card p-3">
+            <div className="match-panel p-3">
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <FormationPitch club={homeClub} isPlayerTeam={pendingMatch.isHome} playerPosition={player.position} squad={pendingMatch.isHome?player.squad:null} flip={false} compact={false} ballEvent={ballAnim && ballAnim.side==="home" ? ballAnim : null} />
                 <FormationPitch club={awayClub} isPlayerTeam={!pendingMatch.isHome} playerPosition={player.position} squad={!pendingMatch.isHome?player.squad:null} flip={true} compact={false} ballEvent={ballAnim && ballAnim.side==="away" ? ballAnim : null} />
@@ -4896,7 +4915,7 @@ function MatchPage(){
               <MatchStatsBar stats={matchStats} homeClub={homeClub} awayClub={awayClub} />
             </div>
           )}
-          <div className="card p-4">
+          <div className="match-panel p-4">
             <h3 className="eyebrow mb-3">Outros jogos da rodada</h3>
             <div className="space-y-2.5">
               {otherGames.length===0 && <p className="text-xs text-steel-400">Nenhum outro jogo nesta rodada.</p>}
@@ -4922,7 +4941,7 @@ function MatchPage(){
             </div>
           </div>
 
-          <div className="card p-4">
+          <div className="match-panel p-4">
             <button className="eyebrow mb-3 flex items-center justify-between w-full" onClick={()=>setShowTopScorers(v=>!v)}>
               <span>Artilharia do campeonato</span>
               <span className="text-steel-400">{showTopScorers?"−":"+"}</span>
