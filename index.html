@@ -967,6 +967,11 @@ function findPlayerContinentalTie(cup){
   return null;
 }
 function advanceContinentalCup(cup, playerWon, playerClub, opponentClub, homeGoals, awayGoals){
+  // Blindagem contra formato antigo/incompatível (carreira salva de uma versão anterior) — em vez de
+  // quebrar a tela, apenas encerra essa copa sem crashar; ela volta a existir normalmente na próxima temporada.
+  if(!cup || !cup.groupRounds || !cup.groups){
+    return { ...cup, phase:"done", eliminated:true };
+  }
   // Mesmo motivo do advanceCup: consome a semana agendada na hora, em vez de depender de bater
   // um número calculado lá no início da temporada (isso é o que fazia a final nunca acontecer
   // quando a linha do tempo desviava um pouco do previsto).
@@ -1047,6 +1052,7 @@ function advanceContinentalCup(cup, playerWon, playerClub, opponentClub, homeGoa
   return cup;
 }
 function scheduleContinentalWeeks(cup, totalLeagueWeeks, offset){
+  if(!cup || !cup.groupRounds || !cup.groupRounds[0]) return { ...cup, scheduledWeeks:[] };
   const groupStageWeeks = cup.groupRounds[0].length;
   const qualifiersCount = cup.groups.length===1 ? 2 : cup.groups.length*2;
   const knockoutRoundsCount = qualifiersCount>2 ? Math.round(Math.log2(qualifiersCount)) : 0;
@@ -1061,6 +1067,7 @@ function scheduleContinentalWeeks(cup, totalLeagueWeeks, offset){
   return { ...cup, scheduledWeeks:weeks };
 }
 function continentalRoundLabel(cup){
+  if(!cup || !cup.groupRounds || !cup.groupRounds[0]) return "";
   if(cup.phase==="groups") return `Fase de grupos — rodada ${cup.currentGroupRound+1}/${cup.groupRounds[0].length}`;
   if(cup.phase==="knockout"){
     const roundName = cupRoundName(cup.knockoutTies.length*2);
@@ -2552,6 +2559,12 @@ function importCareerFile(file){
         if(parsed.player.partnerName && !parsed.player.partner){
           parsed.player.partner = { ...generatePartner(), name: parsed.player.partnerName };
         }
+        // Migração: saves antigos da Libertadores/Champions usavam um formato de grupos diferente
+        // (groupA/groupB em vez de groups[]). Em vez de deixar a tela quebrar, zera a copa continental
+        // dessa carreira — ela é reconstruída automaticamente do zero na próxima temporada.
+        if(parsed.continentalCup && !parsed.continentalCup.groupRounds){
+          parsed.continentalCup = null;
+        }
         resolve(parsed);
       } catch(e){ reject(new Error("Não foi possível ler o arquivo JSON.")); }
     };
@@ -3548,7 +3561,7 @@ function DashboardPage(){
                 <p className="text-white/50 text-sm">{POSITION_LABELS[player.position]} · {player.age} anos{player.nickname && <> · "{player.nickname}"</>}</p>
               </div>
             </div>
-            <div className="flex items-center gap-7 sm:gap-9 shrink-0">
+            <div className="flex items-center gap-5 sm:gap-9 shrink-0 flex-wrap">
               <div className="text-center">
                 <p className="text-hero text-white" style={{fontSize:"2.75rem"}}>{Math.round(player.overall)}</p>
                 <p className="text-label">OVR</p>
@@ -3557,10 +3570,10 @@ function DashboardPage(){
                 <p className="text-2xl leading-none mb-1">{formLabel(player.form).icon}</p>
                 <p className="text-label">{formLabel(player.form).label}</p>
               </div>
-              <div className="hidden sm:flex items-center gap-5 pl-5" style={{borderLeft:"1px solid rgba(255,255,255,0.12)"}}>
-                <div className="text-center"><p className="stat-num text-lg text-white">{Math.round(player.morale)}</p><p className="text-label">Moral</p></div>
-                <div className="text-center"><p className="stat-num text-lg text-white">{Math.round(player.energy)}</p><p className="text-label">Energia</p></div>
-                <div className="text-center"><p className="stat-num text-lg text-white">{Math.round(player.coachTrust)}</p><p className="text-label">Confiança</p></div>
+              <div className="flex items-center gap-4 sm:gap-5 pl-4 sm:pl-5" style={{borderLeft:"1px solid rgba(255,255,255,0.12)"}}>
+                <div className="text-center"><p className="stat-num text-base sm:text-lg text-white">{Math.round(player.morale)}</p><p className="text-label">Moral</p></div>
+                <div className="text-center"><p className="stat-num text-base sm:text-lg text-white">{Math.round(player.energy)}</p><p className="text-label">Energia</p></div>
+                <div className="text-center"><p className="stat-num text-base sm:text-lg text-white">{Math.round(player.coachTrust)}</p><p className="text-label">Confiança</p></div>
               </div>
             </div>
           </div>
