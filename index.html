@@ -787,6 +787,15 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
     leagueOutcome = applyLeagueOutcome(finalPlayer, career.calendar, career.currentSeason);
     finalPlayer = leagueOutcome.player;
   }
+  // Promessas com prazo de temporada ("seremos campeões", "quero ficar aqui") — decididas no fim da temporada.
+  if(finalPlayer.promises && finalPlayer.promises.length>0){
+    finalPlayer = { ...finalPlayer, promises: finalPlayer.promises.map(p=>{
+      if(p.fulfilled!==null) return p;
+      if(p.checkType==="season-champion" && p.deadlineSeason===career.currentSeason) return { ...p, fulfilled: leagueOutcome.position===1 };
+      if(p.checkType==="stay-club" && p.deadlineSeason===career.currentSeason) return { ...p, fulfilled: finalPlayer.club.id===p.clubAtPromise };
+      return p;
+    })};
+  }
 
   const transferOffers = evo.retirementSuggested ? [] : generateTransferOffers(finalPlayer, finalPlayer.club);
   const nextCalendar = evo.retirementSuggested ? career.calendar : buildCalendar(finalPlayer.club, career.quickMode);
@@ -1065,6 +1074,87 @@ const MAINTENANCE_EVENTS = [
   ]},
 ];
 
+// Tentação/traição — mecânica com peso de verdade, não piada. Envolvimento paralelo gera risco
+// crescente de descoberta a cada semana, proporcional à exposição pública do casal.
+const TEMPTATION_EVENT = { question:"Em uma viagem com o elenco, alguém deixa claro interesse em você — e você já está em um relacionamento sério.", options:[
+  { id:"resist", label:"Recusar e ser fiel", partner:{trust:6,love:3}, moral:1 },
+  { id:"engage", label:"Se envolver mesmo assim", startAffair:true, moral:5 },
+]};
+function checkAffairDiscovery(player, season){
+  if(!player.affair) return player;
+  const exposureRisk = ((player.partner && player.partner.publicExposure) || 20)/100;
+  const chance = 0.06 + exposureRisk*0.10 + (player.affair.weeks||0)*0.015;
+  if(Math.random() < chance){
+    const partnerName = player.partner ? player.partner.name : "seu(sua) parceiro(a)";
+    let updated = { ...player, affair:null, relationshipStatus:"solteiro", partner:null,
+      morale: Math.max(0, player.morale-22), reputation:{...player.reputation, fans:Math.max(0, player.reputation.fans-8)} };
+    updated = addMilestone(updated, `Foi flagrado(a) em um caso paralelo enquanto namorava ${partnerName} — o escândalo veio à tona.`, season, "vida pessoal");
+    return { ...updated, __affairExposed:true };
+  }
+  return { ...player, affair:{ ...player.affair, weeks:(player.affair.weeks||0)+1 } };
+}
+
+// ============================================================
+// PROMESSAS PÚBLICAS — o jogador se compromete publicamente com algo, com prazo e
+// consequência real: cumprir sobe a reputação, falhar vira cobrança da imprensa.
+// ============================================================
+const PROMISE_TEMPLATES = [
+  { id:"score-rival", text:"Vou marcar no próximo clássico.", checkType:"rivalry-goal", deadlineWeeks:20 },
+  { id:"be-champion", text:"Vamos ser campeões nesta temporada.", checkType:"season-champion", deadlineSeasons:1 },
+  { id:"stay-club", text:"Quero ficar neste clube.", checkType:"stay-at-club", deadlineSeasons:1 },
+  { id:"no-parties", text:"Vou parar de ir a festas.", checkType:"no-parties", deadlineWeeks:16 },
+];
+function makePromise(player, templateId, currentSeason, currentWeekIndex){
+  const template = PROMISE_TEMPLATES.find(t=>t.id===templateId);
+  const promise = { id:`promise-${Date.now()}`, text:template.text, checkType:template.checkType, madeSeason:currentSeason,
+    deadlineWeekIndex: template.deadlineWeeks ? currentWeekIndex+template.deadlineWeeks : null,
+    deadlineSeason: template.deadlineSeasons ? currentSeason+template.deadlineSeasons : null,
+    fulfilled:null, clubAtPromise: player.club.id };
+  let updated = { ...player, promises:[...(player.promises||[]), promise] };
+  const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local", headline:`${player.firstName} ${player.lastName} faz promessa pública: "${template.text}"`,
+    summary:"A declaração viraliza entre os torcedores e a imprensa vai cobrar o resultado.", date:`Temporada ${currentSeason}`, impact:4, season:currentSeason };
+  updated.newsLog = [news, ...updated.newsLog].slice(0,40);
+  return updated;
+}
+function resolvePromiseOutcome(player, promise, fulfilled, season){
+  let updated = { ...player, promises: player.promises.map(p=> p.id===promise.id ? { ...p, fulfilled, processed:true } : p) };
+  if(fulfilled){
+    updated.reputation = { ...updated.reputation, fans: Math.min(100, updated.reputation.fans+8), press: Math.min(100, updated.reputation.press+5) };
+    updated = addMilestone(updated, `Cumpriu a promessa: "${promise.text}"`, season, "prêmio");
+    const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional", headline:`${player.firstName} cumpre a promessa que fez à torcida`,
+      summary:`"${promise.text}" — e foi exatamente isso que aconteceu.`, date:`Temporada ${season}`, impact:10, season };
+    updated.newsLog = [news, ...updated.newsLog].slice(0,40);
+  } else {
+    updated.reputation = { ...updated.reputation, fans: Math.max(0, updated.reputation.fans-6), press: Math.max(0, updated.reputation.press-8) };
+    updated = addMilestone(updated, `Não cumpriu a promessa: "${promise.text}"`, season, "vida pessoal");
+    const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista", headline:`Imprensa cobra promessa não cumprida por ${player.firstName}`,
+      summary:`"${promise.text}" — a torcida não esqueceu, e o resultado não veio.`, date:`Temporada ${season}`, impact:-8, season };
+    updated.newsLog = [news, ...updated.newsLog].slice(0,40);
+  }
+  return updated;
+}
+// Varre as promessas com desfecho já decidido (fulfilled true/false) mas ainda não processadas
+// (notícia/reputação ainda não aplicadas), e aplica a consequência de cada uma de uma vez.
+function processPendingPromises(player, season){
+  let updated = player;
+  (updated.promises||[]).filter(p=>p.fulfilled!=null && !p.processed).forEach(p=>{
+    updated = resolvePromiseOutcome(updated, p, p.fulfilled, season);
+  });
+  return updated;
+}
+// Expira promessas com prazo vencido que ainda não tiveram desfecho decidido.
+function expirePromises(player, currentWeekIndex, currentSeason){
+  let changed = false;
+  const promises = (player.promises||[]).map(p=>{
+    if(p.fulfilled!=null) return p;
+    const weekExpired = p.deadlineWeekIndex!=null && currentWeekIndex>p.deadlineWeekIndex;
+    const seasonExpired = p.deadlineSeason!=null && currentSeason>p.deadlineSeason;
+    if(weekExpired || seasonExpired){ changed = true; return { ...p, fulfilled:false }; }
+    return p;
+  });
+  return changed ? { ...player, promises } : player;
+}
+
 
 const TRAINING_OPTIONS = [
   { id:"finishing", label:"Finalização", description:"Sessões de conclusão de jogadas, chutes a gol e cobranças.", energyCost:11, injuryRisk:5, boostKeys:["finishing","composure"], hiddenFor:["GOL"] },
@@ -1170,7 +1260,12 @@ function applyTraining(player, coachTrainingQuality, optionId){
   const injuryOccurred = Math.random()*100 < option.injuryRisk*fatigueFactor;
 
   if(option.energyCost<0) updated.morale = Math.round(Math.min(100, updated.morale+2));
-  if(optionId==="party"){ updated.morale = Math.round(Math.min(100, updated.morale+10)); updated.reputation.fans = Math.round(Math.min(100, updated.reputation.fans+3)); }
+  if(optionId==="party"){
+    updated.morale = Math.round(Math.min(100, updated.morale+10)); updated.reputation.fans = Math.round(Math.min(100, updated.reputation.fans+3));
+    if(updated.promises && updated.promises.some(p=>p.checkType==="no-parties" && p.fulfilled===null)){
+      updated.promises = updated.promises.map(p=> (p.checkType==="no-parties" && p.fulfilled===null) ? { ...p, fulfilled:false } : p);
+    }
+  }
   if(optionId==="family"){ updated.morale = Math.round(Math.min(100, updated.morale+6)); updated.relationships.family = Math.round(Math.min(100, updated.relationships.family+4)); }
 
   return { player:updated, energyBefore, energyAfter:updated.energy, gains, injuryOccurred };
@@ -1901,7 +1996,21 @@ const PRESS_SCENARIOS = {
   }],
 };
 
-function pickPressScenario(result, careerMatchesBefore){
+function buildMemoryScenario(player, season){
+  const pastMilestones = (player.milestones||[]).filter(m=>m.season<season);
+  if(pastMilestones.length===0) return null;
+  const m = pick(pastMilestones);
+  return {
+    question: `Voltando à Temporada ${m.season}: "${m.text}" — o que aquele momento significou pra você?`,
+    answers: [
+      { id:"cherish", label:'"Guardo aquilo com muito carinho até hoje."', press:4, fans:5, coachTrust:1, counter:"humilde" },
+      { id:"moveon", label:'"Já virei a página, meu foco é o presente."', press:0, fans:-1, coachTrust:2, counter:"profissional" },
+      { id:"proud", label:'"É um dos grandes orgulhos da minha carreira."', press:3, fans:3, coachTrust:0, counter:"lider" },
+      { id:"deflect", label:'"Prefiro não remexer no passado agora."', press:-3, fans:-2, coachTrust:0, counter:"polemico" },
+    ],
+  };
+}
+function pickPressScenario(result, careerMatchesBefore, player, season){
   const margin = Math.abs(result.homeGoals - result.awayGoals);
   const playerWon = (result.isHome && result.homeGoals>result.awayGoals) || (!result.isHome && result.awayGoals>result.homeGoals);
   const playerLost = (result.isHome && result.homeGoals<result.awayGoals) || (!result.isHome && result.awayGoals<result.homeGoals);
@@ -1913,6 +2022,10 @@ function pickPressScenario(result, careerMatchesBefore){
   else if(playerWon && margin>=3) key = "bigWin";
   else if(result.rating<=5) key = "poorRating";
   else if(result.rating>=8.5) key = "greatRating";
+  if(key==="generic" && player && Math.random()<0.18){
+    const memoryScenario = buildMemoryScenario(player, season);
+    if(memoryScenario) return { key:"memoria", scenario: memoryScenario };
+  }
   const pool = PRESS_SCENARIOS[key] || PRESS_SCENARIOS.generic;
   return { key, scenario: pick(pool) };
 }
@@ -1992,6 +2105,64 @@ const COACH_TALK_RESPONSES = [
   { id:"question", label:"Questionar educadamente a abordagem", coachTrust:-2, morale:2 },
   { id:"silent", label:"Ouvir em silêncio", coachTrust:1, morale:-1 },
   { id:"promise", label:"Prometer melhorar imediatamente", coachTrust:3, morale:1 },
+];
+
+// Conflitos de verdade com o técnico — o jogador toma a iniciativa, com risco real
+// (perder espaço no time), não só uma conversa de corredor.
+const COACH_CONFLICT_ACTIONS = [
+  { id:"complain-bench", label:"Reclamar diretamente do banco de reservas", successChance:0.4,
+    success:{ coachTrust:8, text:"O treinador ouve, reconhece o momento e promete mais chances." },
+    fail:{ coachTrust:-14, morale:-6, text:"O treinador não gosta da cobrança e te trata com mais distância." } },
+  { id:"ask-minutes", label:"Pedir mais minutos numa conversa reservada", successChance:0.5,
+    success:{ coachTrust:4, morale:4, text:"O treinador valoriza a maturidade de vir conversar pessoalmente." },
+    fail:{ coachTrust:-4, text:"O treinador pede paciência e não muda a rotação." } },
+  { id:"disagree-tactics", label:"Discordar abertamente da tática em coletiva interna", successChance:0.3,
+    success:{ coachTrust:2, "reputation.players":6, text:"Alguns companheiros concordam com você em silêncio." },
+    fail:{ coachTrust:-16, morale:-4, text:"O treinador não tolera ser contestado na frente do grupo." } },
+  { id:"apologize", label:"Pedir desculpas por um comportamento recente", successChance:0.7,
+    success:{ coachTrust:10, text:"O gesto é bem recebido e a relação melhora." },
+    fail:{ coachTrust:2, text:"O treinador aceita, mas ainda guarda certa desconfiança." } },
+];
+function resolveCoachConflict(player, actionId){
+  const action = COACH_CONFLICT_ACTIONS.find(a=>a.id===actionId);
+  const success = Math.random() < action.successChance;
+  const outcome = success ? action.success : action.fail;
+  let updated = { ...player, coachTrust: Math.max(0, Math.min(100, player.coachTrust + (outcome.coachTrust||0))),
+    morale: Math.max(0, Math.min(100, player.morale + (outcome.morale||0))) };
+  if(outcome["reputation.players"]) updated.reputation = { ...updated.reputation, players: Math.min(100, updated.reputation.players + outcome["reputation.players"]) };
+  return { player:updated, success, text:outcome.text };
+}
+
+// Relacionamento com companheiros de elenco — cada um pode virar de colega a melhor amigo,
+// ou de rival a inimigo esportivo, dependendo de como você trata a relação ao longo do tempo.
+const TEAMMATE_RELATIONSHIP_TIERS = ["Desconhecido","Colega","Amigo","Melhor amigo"];
+const TEAMMATE_RIVAL_TIERS = ["Desconhecido","Rival","Grande rival","Inimigo esportivo"];
+function teammateRelationshipLabel(value){
+  if(value>=70) return "Melhor amigo";
+  if(value>=45) return "Amigo";
+  if(value>=25) return "Colega";
+  if(value>=10) return "Desconhecido";
+  if(value>=-25) return "Rival";
+  if(value>=-55) return "Grande rival";
+  return "Inimigo esportivo";
+}
+const TEAMMATE_EVENTS = [
+  { question:"Um companheiro de elenco pede sua ajuda pra treinar cobranças de pênalti fora do horário normal.", options:[
+    { id:"help", label:"Ajudar de bom grado", rel:14, moral:2 },
+    { id:"decline", label:"Dizer que está cansado hoje", rel:-4, moral:0 },
+  ]},
+  { question:"Na disputa por uma posição, um companheiro te provoca no vestiário.", options:[
+    { id:"laugh", label:"Rir e devolver na brincadeira", rel:6, moral:1 },
+    { id:"confront", label:"Confrontar sério, sem deixar barato", rel:-16, moral:-1 },
+  ]},
+  { question:"Vocês disputam quem vai bater o pênalti decisivo do próximo jogo.", options:[
+    { id:"cede", label:"Ceder a cobrança pra ele", rel:10, moral:-1 },
+    { id:"insist", label:"Insistir que você deve bater", rel:-8, moral:2 },
+  ]},
+  { question:"Um companheiro está desanimado depois de ficar fora da lista de relacionados.", options:[
+    { id:"support", label:"Chamar pra conversar e dar apoio", rel:16, moral:3 },
+    { id:"ignore", label:"Deixar ele resolver sozinho", rel:-3, moral:0 },
+  ]},
 ];
 
 // ============================================================
@@ -2787,6 +2958,10 @@ function DashboardPage(){
   const [cupDetailsOpen, setCupDetailsOpen] = useState(null);
   const [relationshipEvent, setRelationshipEvent] = useState(null);
   const [showBreakupMenu, setShowBreakupMenu] = useState(false);
+  const [teammateEvent, setTeammateEvent] = useState(null);
+  const [showCoachConflict, setShowCoachConflict] = useState(false);
+  const [coachConflictResult, setCoachConflictResult] = useState(null);
+  const [showPromiseMenu, setShowPromiseMenu] = useState(false);
 
   useEffect(()=>{
     if(!career) return;
@@ -2799,6 +2974,32 @@ function DashboardPage(){
       const status = career.player.relationshipStatus||"solteiro";
       const useMaintenace = status!=="solteiro" && Math.random()<0.55;
       setRelationshipEvent(useMaintenace ? { ...pick(MAINTENANCE_EVENTS), maintenance:true } : RELATIONSHIP_EVENTS[status]);
+    }
+    if(!isMatchWeek && !activeInjury && !teammateEvent && career.player.squad && career.player.squad.length>0 && Math.random()<0.16){
+      const mate = pick(career.player.squad);
+      setTeammateEvent({ ...pick(TEAMMATE_EVENTS), mateId:mate.id, mateName:mate.name });
+    }
+    if(!isMatchWeek && !activeInjury && !relationshipEvent && !career.player.affair &&
+       career.player.relationshipStatus && career.player.relationshipStatus!=="solteiro" && Math.random()<0.045){
+      setRelationshipEvent({ ...TEMPTATION_EVENT, temptation:true });
+    }
+    if(career.player.affair){
+      const rolled = checkAffairDiscovery(career.player, career.currentSeason);
+      if(rolled.__affairExposed){
+        const { __affairExposed, ...cleanPlayer } = rolled;
+        const news = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
+          headline:`Escândalo! ${career.player.firstName} ${career.player.lastName} é flagrado(a) em caso paralelo`,
+          summary:"A repercussão negativa atinge a imagem do atleta dentro e fora de campo.", date:`Temporada ${career.currentSeason}`, impact:-15, season:career.currentSeason };
+        cleanPlayer.newsLog = [news, ...cleanPlayer.newsLog].slice(0,40);
+        persist(c=>({ ...c, player: cleanPlayer }));
+      } else if(rolled!==career.player){
+        persist(c=>({ ...c, player: rolled }));
+      }
+    }
+    if(career.player.promises && career.player.promises.length>0){
+      let sweptPlayer = expirePromises(career.player, career.weekIndex, career.currentSeason);
+      sweptPlayer = processPendingPromises(sweptPlayer, career.currentSeason);
+      if(sweptPlayer!==career.player) persist(c=>({ ...c, player: sweptPlayer }));
     }
     // eslint-disable-next-line
   }, [career && career.weekIndex]);
@@ -2836,6 +3037,20 @@ function DashboardPage(){
   }
 
   function respondRelationshipEvent(option){
+    if(relationshipEvent && relationshipEvent.temptation){
+      let updatedPlayer = { ...player, morale: Math.min(100, Math.max(0, player.morale + option.moral)) };
+      if(option.startAffair){
+        updatedPlayer.affair = { weeks:0 };
+        updatedPlayer = addMilestone(updatedPlayer, `Iniciou um caso paralelo enquanto namorava ${player.partner?player.partner.name:""}.`, career.currentSeason, "vida pessoal");
+      } else if(option.partner && player.partner){
+        let updatedPartner = { ...player.partner };
+        Object.entries(option.partner).forEach(([k,v])=>{ updatedPartner[k] = Math.max(0, Math.min(100, (updatedPartner[k]||50)+v)); });
+        updatedPlayer.partner = updatedPartner;
+      }
+      persist(c=>({ ...c, player: updatedPlayer }));
+      setRelationshipEvent(null);
+      return;
+    }
     if(relationshipEvent && relationshipEvent.maintenance){
       let updatedPartner = { ...(player.partner||generatePartner()) };
       Object.entries(option.partner||{}).forEach(([k,v])=>{ updatedPartner[k] = Math.max(0, Math.min(100, (updatedPartner[k]||50)+v)); });
@@ -2866,6 +3081,27 @@ function DashboardPage(){
     persist(c=>({ ...c, player: updatedPlayer }));
     setRelationshipEvent(null);
   }
+
+  function respondTeammateEvent(option){
+    const current = (player.teammateRelationships||{})[teammateEvent.mateId] || 20;
+    const updatedRel = { ...(player.teammateRelationships||{}), [teammateEvent.mateId]: Math.max(-100, Math.min(100, current+option.rel)) };
+    const updatedPlayer = { ...player, teammateRelationships:updatedRel, morale: Math.min(100, Math.max(0, player.morale+option.moral)) };
+    persist(c=>({ ...c, player: updatedPlayer }));
+    setTeammateEvent(null);
+  }
+
+  function initCoachConflict(actionId){
+    const { player:updatedPlayer, success, text } = resolveCoachConflict(player, actionId);
+    persist(c=>({ ...c, player: updatedPlayer }));
+    setCoachConflictResult({ success, text });
+  }
+
+  function handleMakePromise(templateId){
+    const updatedPlayer = makePromise(player, templateId, career.currentSeason, career.weekIndex);
+    persist(c=>({ ...c, player: updatedPlayer }));
+    setShowPromiseMenu(false);
+  }
+
 
   function breakupRelationship(reason){
     const partnerName = player.partner ? player.partner.name : "seu(sua) parceiro(a)";
@@ -3073,6 +3309,9 @@ function DashboardPage(){
     let updatedPlayer = { ...player, club:newClub, clubHistory:updatedHistory, squad:newSquad, coachTrust:50, weeklySalary:offer.salaryPerWeek,
       reputation:{...player.reputation, club:35}, seasons:[...player.seasons, partialRecord], newsLog:[news, ...player.newsLog].slice(0,40) };
     updatedPlayer = addMilestone(updatedPlayer, `Pediu transferência e se acertou com o ${newClub.name} no meio da temporada.`, career.currentSeason, "transferência");
+    if(updatedPlayer.promises && updatedPlayer.promises.some(p=>p.checkType==="stay-club" && p.fulfilled===null)){
+      updatedPlayer.promises = updatedPlayer.promises.map(p=> (p.checkType==="stay-club" && p.fulfilled===null) ? { ...p, fulfilled:false } : p);
+    }
     const builtCups = buildSeasonCups(newClub);
     const totalLeagueWeeks = newCalendar.rounds.length*2;
     const newCup = scheduleCupWeeks(builtCups.cup, totalLeagueWeeks, 0);
@@ -3180,6 +3419,17 @@ function DashboardPage(){
 
           {coachChat && <CoachChatCard opener={coachChat} onRespond={respondCoachChat} />}
           {relationshipEvent && <RelationshipEventCard event={relationshipEvent} onRespond={respondRelationshipEvent} />}
+          {teammateEvent && (
+            <div className="card p-5 border-l-2 border-touchline/60 mb-4 fade-in">
+              <span className="eyebrow">Vestiário — {teammateEvent.mateName}</span>
+              <p className="text-steel-100 mt-1 mb-4">{teammateEvent.question}</p>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {teammateEvent.options.map(o=>(
+                  <button key={o.id} onClick={()=>respondTeammateEvent(o)} className="text-left px-3 py-2 rounded-lg border border-pitch-700 bg-pitch-800 hover:border-touchline/60 text-sm text-steel-200 transition-colors">{o.label}</button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {activeInjury ? (
             <div className="card p-6 border-l-2 border-state-down/60">
@@ -3416,13 +3666,61 @@ function DashboardPage(){
               <button className="text-xs text-touchline hover:underline" onClick={()=>setShowFullSquad(v=>!v)}>{showFullSquad?"Ver menos":`Ver todos (${player.squad.length})`}</button>
             </div>
             <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-              {(showFullSquad ? player.squad : player.squad.slice(0,8)).map(tm=>(
+              {(showFullSquad ? player.squad : player.squad.slice(0,8)).map(tm=>{
+                const relValue = (player.teammateRelationships||{})[tm.id];
+                const relTag = relValue!=null ? teammateRelationshipLabel(relValue) : null;
+                return (
                 <div key={tm.id} className="flex items-center justify-between text-xs">
-                  <span className="text-steel-200">{tm.name}</span>
+                  <span className="text-steel-200">{tm.name}{relTag && <span className={`ml-1.5 text-[10px] ${relValue<0?"text-state-down":"text-touchline"}`}>· {relTag}</span>}</span>
                   <span className="text-steel-400">{POSITION_LABELS[tm.position]} · {tm.overall}{showFullSquad?` · ${tm.status}`:""}</span>
                 </div>
-              ))}
+                );
+              })}
             </div>
+          </div>
+          <div className="card p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-display font-semibold text-steel-100">🗣️ Relação com o técnico</h3>
+              <button className="text-xs text-touchline hover:underline" onClick={()=>{ setShowCoachConflict(v=>!v); setCoachConflictResult(null); }}>{showCoachConflict?"Fechar":"Conversar"}</button>
+            </div>
+            {showCoachConflict && (
+              <div className="space-y-2">
+                {coachConflictResult ? (
+                  <div className={`p-3 rounded-lg text-xs ${coachConflictResult.success?"bg-state-up/10 text-state-up":"bg-state-down/10 text-state-down"}`}>
+                    {coachConflictResult.text}
+                  </div>
+                ) : (
+                  COACH_CONFLICT_ACTIONS.map(a=>(
+                    <button key={a.id} onClick={()=>initCoachConflict(a.id)} className="w-full text-left px-3 py-2 rounded-lg border border-pitch-700 bg-pitch-800 hover:border-touchline/60 text-xs text-steel-200 transition-colors">{a.label}</button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          <div className="card p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-display font-semibold text-steel-100">🤝 Promessas</h3>
+              <button className="text-xs text-touchline hover:underline" onClick={()=>setShowPromiseMenu(v=>!v)}>{showPromiseMenu?"Fechar":"Fazer promessa"}</button>
+            </div>
+            {showPromiseMenu && (
+              <div className="space-y-1.5 mb-3">
+                {PROMISE_TEMPLATES.map(t=>(
+                  <button key={t.id} onClick={()=>handleMakePromise(t.id)} className="w-full text-left px-3 py-2 rounded-lg border border-pitch-700 bg-pitch-800 hover:border-touchline/60 text-xs text-steel-200 transition-colors">"{t.text}"</button>
+                ))}
+              </div>
+            )}
+            {player.promises && player.promises.length>0 ? (
+              <div className="space-y-1.5">
+                {[...player.promises].reverse().slice(0,5).map(p=>(
+                  <div key={p.id} className="flex items-center justify-between text-xs">
+                    <span className="text-steel-300 truncate pr-2">"{p.text}"</span>
+                    <span className={`shrink-0 font-display text-[10px] ${p.fulfilled===true?"text-state-up":p.fulfilled===false?"text-state-down":"text-steel-400"}`}>
+                      {p.fulfilled===true?"✓ Cumprida":p.fulfilled===false?"✗ Não cumprida":"Em aberto"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : !showPromiseMenu && <p className="text-xs text-steel-400">Nenhuma promessa feita ainda.</p>}
           </div>
           {player.milestones && player.milestones.length>0 && (
             <div className="card p-4 border-l-[3px]" style={{borderLeftColor:clubPrimary}}>
@@ -3601,7 +3899,7 @@ function MatchPage(){
   const pressScenario = useMemo(()=>{
     if(!pendingResult) return null;
     const careerMatchesBefore = player.seasons.reduce((s,x)=>s+x.matches,0) + career.seasonProgress.matchesPlayed;
-    return pickPressScenario(pendingResult, careerMatchesBefore);
+    return pickPressScenario(pendingResult, careerMatchesBefore, player, career.currentSeason);
   }, [pendingResult]);
 
   if(!career || !pendingMatch) return null;
@@ -3815,7 +4113,7 @@ function MatchPage(){
   function goToPress(){
     const result = buildMatchResult(player, pendingMatch.opponentClub, pendingMatch.competition, pendingMatch.isHome, timeline.filter(b=>b.type==="decision").map(b=>b.moment), outcomes, homeGoals, awayGoals);
     const careerMatchesBefore = player.seasons.reduce((s,x)=>s+x.matches,0) + career.seasonProgress.matchesPlayed;
-    const { key } = pickPressScenario(result, careerMatchesBefore);
+    const { key } = pickPressScenario(result, careerMatchesBefore, player, career.currentSeason);
     setPendingResult(result);
     // Nem toda partida rende coletiva — só jogos com algo relevante para contar, ou 30% das partidas comuns.
     if(key!=="generic" || Math.random()<0.3){
@@ -3835,6 +4133,13 @@ function MatchPage(){
     updatedPlayer.totalCareerAssists = (updatedPlayer.totalCareerAssists||0) + result.playerAssists;
     updatedPlayer.totalCareerMatches = (updatedPlayer.totalCareerMatches||0) + 1;
     updatedPlayer.form = updateForm(updatedPlayer.form, result.rating);
+    // Cumprimento de promessa de gol em clássico — vale pra qualquer partida contra um rival cadastrado.
+    if(!pendingMatch.isNational && !pendingMatch.isWorldCup && result.playerGoals>0 && updatedPlayer.promises){
+      const rivalHere = findRivalry(pendingMatch.isHome?player.club.id:pendingMatch.opponentClub.id, pendingMatch.isHome?pendingMatch.opponentClub.id:player.club.id);
+      if(rivalHere){
+        updatedPlayer.promises = updatedPlayer.promises.map(p=> (p.checkType==="rivalry-goal" && p.fulfilled===null) ? { ...p, fulfilled:true } : p);
+      }
+    }
     const minutesThisMatch = pendingMatch.startsOnBench ? Math.max(2, 90-(timeline.find(b=>b.type==="substitution")?.minute||58)) : 90;
     updatedPlayer.totalMinutes = (updatedPlayer.totalMinutes||0) + minutesThisMatch;
     if(player.position==="GOL"){
