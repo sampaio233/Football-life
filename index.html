@@ -842,115 +842,134 @@ function finishSeason(career, updatedPlayer, nextSeasonProgress){
 
 // ============================================================
 // LIBERTADORES / COPA CONTINENTAL — fase de grupos + final
-// (versão reduzida do formato real: grupo de 4 times, os 2 melhores decidem o título)
 // ============================================================
-// Libertadores/Champions Continental "de verdade": 2 grupos de 4 times (turno único dentro do grupo),
-// os 2 primeiros de cada grupo avançam para as semifinais (ida e volta), depois final (jogo único).
+// LIBERTADORES/CHAMPIONS LEAGUE — formato real: até 8 grupos de 4 (32 times), os 2 primeiros
+// de cada grupo avançam pro mata-mata de ida e volta (oitavas → quartas → semifinal), com final
+// em jogo único. Placar agregado decide; se empatar no total dos dois jogos, vai pra pênaltis.
+// Países com menos clubes cadastrados usam menos grupos — o nome da fase (oitavas/quartas/
+// semifinal) é sempre calculado a partir de quantos times realmente entraram no mata-mata,
+// nunca fixo, pra não chamar de "oitavas" uma fase que na verdade só tem 4 times.
+// ============================================================
 function buildContinentalCup(name, poolTeams, playerClub){
   const others = poolTeams.filter(t=>t.id!==playerClub.id).sort(()=>Math.random()-0.5);
-  const chosen = others.slice(0, Math.min(7, others.length));
-  const groupA = [playerClub, ...chosen.slice(0,3)];
-  const groupB = chosen.slice(3,7);
-  const hasGroupB = groupB.length>=2;
-  const groupARounds = roundRobin(groupA);
-  const groupBRounds = hasGroupB ? roundRobin(groupB) : [];
-  const groupAStandings = {}; groupA.forEach(t=>{ groupAStandings[t.id]={club:t,j:0,v:0,e:0,d:0,gp:0,gc:0,pts:0}; });
-  const groupBStandings = {}; groupB.forEach(t=>{ groupBStandings[t.id]={club:t,j:0,v:0,e:0,d:0,gp:0,gc:0,pts:0}; });
-  return { name, phase:"groups", groupA, groupB, groupARounds, groupBRounds, groupAStandings, groupBStandings, hasGroupB,
-    currentGroupRound:0, playerClubId:playerClub.id, semis:null, finalTie:null, eliminated:false, champion:null, scheduledWeeks:[], playerGoals:0, playerAssists:0 };
+  const totalAvailable = others.length + 1;
+  const numGroups = Math.max(1, Math.min(8, Math.floor(totalAvailable/4)));
+  const totalNeeded = numGroups*4;
+  const chosen = others.slice(0, totalNeeded-1);
+  const teams = [playerClub, ...chosen].sort(()=>Math.random()-0.5);
+  const groups = [];
+  for(let g=0; g<numGroups; g++) groups.push(teams.slice(g*4, g*4+4));
+  const playerGroupIndex = groups.findIndex(g=>g.some(t=>t.id===playerClub.id));
+  const groupRounds = groups.map(g=>roundRobin(g));
+  const groupStandings = groups.map(g=>{ const s={}; g.forEach(t=>{ s[t.id]={club:t,j:0,v:0,e:0,d:0,gp:0,gc:0,pts:0}; }); return s; });
+  return { name, phase:"groups", groups, groupRounds, groupStandings, playerGroupIndex, currentGroupRound:0,
+    playerClubId:playerClub.id, knockoutTies:[], finalTie:null, eliminated:false, champion:null,
+    scheduledWeeks:[], playerGoals:0, playerAssists:0 };
 }
 function continentalGroupStandingsSorted(standings, teams){
   return teams.map(t=>standings[t.id]).sort((a,b)=>(b.pts-a.pts)||((b.gp-b.gc)-(a.gp-a.gc))||(b.gp-a.gp));
 }
+function buildKnockoutTies(teams){
+  const ties = [];
+  for(let i=0;i<teams.length;i+=2){
+    ties.push({ home:teams[i], away:teams[i+1], legs:[
+      { leg:1, home:teams[i], away:teams[i+1], resolved:false, homeGoals:null, awayGoals:null },
+      { leg:2, home:teams[i+1], away:teams[i], resolved:false, homeGoals:null, awayGoals:null },
+    ]});
+  }
+  return ties;
+}
+function resolveKnockoutTieAggregate(tie){
+  let goalsHome=0, goalsAway=0;
+  tie.legs.forEach(l=>{
+    if(l.home.id===tie.home.id){ goalsHome+=l.homeGoals; goalsAway+=l.awayGoals; }
+    else { goalsHome+=l.awayGoals; goalsAway+=l.homeGoals; }
+  });
+  if(goalsHome===goalsAway) return Math.random()<0.5 ? tie.home : tie.away; // agregado empatado -> pênaltis
+  return goalsHome>goalsAway ? tie.home : tie.away;
+}
 function findPlayerContinentalTie(cup){
   if(!cup || cup.champion || cup.eliminated) return null;
   if(cup.phase==="groups"){
-    const round = cup.groupARounds[cup.currentGroupRound];
+    const round = cup.groupRounds[cup.playerGroupIndex][cup.currentGroupRound];
     if(!round) return null;
     return round.find(m=>m.home.id===cup.playerClubId||m.away.id===cup.playerClubId) || null;
   }
-  if(cup.phase==="semis" && cup.semis){
-    const leg = cup.semis.legs.find(l=>!l.resolved && (l.home.id===cup.playerClubId||l.away.id===cup.playerClubId));
-    return leg || null;
+  if(cup.phase==="knockout"){
+    const tie = cup.knockoutTies.find(t=>t.home.id===cup.playerClubId||t.away.id===cup.playerClubId);
+    if(!tie) return null;
+    return tie.legs.find(l=>!l.resolved) || null;
   }
   if(cup.phase==="final" && cup.finalTie && !cup.finalTie.resolved) return cup.finalTie;
   return null;
 }
 function advanceContinentalCup(cup, playerWon, playerClub, opponentClub, homeGoals, awayGoals){
   if(cup.phase==="groups"){
-    const roundA = cup.groupARounds[cup.currentGroupRound].map(m=>{
-      const isPlayerMatch = m.home.id===cup.playerClubId || m.away.id===cup.playerClubId;
-      if(isPlayerMatch) applyResultToStandings(cup.groupAStandings, m.home, m.away, homeGoals, awayGoals);
-      else { const res=quickSimResult(m.home,m.away); applyResultToStandings(cup.groupAStandings, m.home, m.away, res.homeGoals, res.awayGoals); }
-      return { ...m, resolved:true };
+    const newGroupRounds = cup.groupRounds.map((rounds, gi)=>{
+      const round = rounds[cup.currentGroupRound].map(m=>{
+        const isPlayerMatch = gi===cup.playerGroupIndex && (m.home.id===cup.playerClubId || m.away.id===cup.playerClubId);
+        if(isPlayerMatch){
+          applyResultToStandings(cup.groupStandings[gi], m.home, m.away, homeGoals, awayGoals);
+        } else {
+          const res = quickSimResult(m.home, m.away);
+          applyResultToStandings(cup.groupStandings[gi], m.home, m.away, res.homeGoals, res.awayGoals);
+        }
+        return { ...m, resolved:true };
+      });
+      const updated = [...rounds]; updated[cup.currentGroupRound] = round; return updated;
     });
-    const roundB = (cup.groupBRounds[cup.currentGroupRound]||[]).map(m=>{
-      const res = quickSimResult(m.home, m.away);
-      applyResultToStandings(cup.groupBStandings, m.home, m.away, res.homeGoals, res.awayGoals);
-      return { ...m, resolved:true };
-    });
-    const newGroupARounds = [...cup.groupARounds]; newGroupARounds[cup.currentGroupRound] = roundA;
-    const newGroupBRounds = [...cup.groupBRounds]; if(cup.groupBRounds[cup.currentGroupRound]) newGroupBRounds[cup.currentGroupRound] = roundB;
-    const maxRounds = Math.max(cup.groupARounds.length, cup.groupBRounds.length);
     const nextRound = cup.currentGroupRound+1;
-    if(nextRound < maxRounds){
-      return { ...cup, groupARounds:newGroupARounds, groupBRounds:newGroupBRounds, currentGroupRound:nextRound };
+    if(nextRound < cup.groupRounds[0].length){
+      return { ...cup, groupRounds:newGroupRounds, currentGroupRound:nextRound };
     }
-    const topA = continentalGroupStandingsSorted(cup.groupAStandings, cup.groupA).slice(0,2).map(r=>r.club);
-    const topB = cup.hasGroupB ? continentalGroupStandingsSorted(cup.groupBStandings, cup.groupB).slice(0,2).map(r=>r.club) : [];
-    const playerQualified = topA.some(t=>t.id===cup.playerClubId);
-    const base = { ...cup, groupARounds:newGroupARounds, groupBRounds:newGroupBRounds };
+    const qualifiersByGroup = cup.groups.map((g,gi)=> continentalGroupStandingsSorted(cup.groupStandings[gi], g).slice(0,2).map(r=>r.club));
+    const playerQualified = qualifiersByGroup[cup.playerGroupIndex].some(t=>t.id===cup.playerClubId);
+    const base = { ...cup, groupRounds:newGroupRounds };
     if(!playerQualified) return { ...base, phase:"done", eliminated:true };
-    if(topB.length<2){
-      // Sem grupo B disponível (país com poucos clubes cadastrados): vai direto pros 2 primeiros do grupo do jogador na final.
-      return { ...base, phase:"final", finalTie:{ home:topA[0], away:topA[1], resolved:false, winner:null } };
+    if(cup.groups.length===1){
+      const [first, second] = qualifiersByGroup[0];
+      return { ...base, phase:"final", finalTie:{ home:first, away:second, resolved:false, winner:null } };
     }
-    // Semifinais cruzadas: 1ºA x 2ºB (ida e volta) e 1ºB x 2ºA (ida e volta).
-    const semis = { legs:[
-      { tie:"semi1", leg:1, home:topA[0], away:topB[1], resolved:false, homeGoals:null, awayGoals:null },
-      { tie:"semi1", leg:2, home:topB[1], away:topA[0], resolved:false, homeGoals:null, awayGoals:null },
-      { tie:"semi2", leg:1, home:topB[0], away:topA[1], resolved:false, homeGoals:null, awayGoals:null },
-      { tie:"semi2", leg:2, home:topA[1], away:topB[0], resolved:false, homeGoals:null, awayGoals:null },
-    ]};
-    return { ...base, phase:"semis", semis };
+    // Cruzamento clássico: 1º de cada grupo x 2º de outro grupo (nunca do mesmo grupo).
+    const firsts = qualifiersByGroup.map(q=>q[0]);
+    const seconds = qualifiersByGroup.map(q=>q[1]);
+    const shuffledSeconds = [...seconds]; shuffledSeconds.push(shuffledSeconds.shift());
+    const bracketTeams = [];
+    firsts.forEach((t,i)=>{ bracketTeams.push(t, shuffledSeconds[i]); });
+    const knockoutTies = buildKnockoutTies(bracketTeams);
+    if(knockoutTies.length===1){
+      return { ...base, phase:"final", finalTie:{ home:bracketTeams[0], away:bracketTeams[1], resolved:false, winner:null } };
+    }
+    return { ...base, phase:"knockout", knockoutTies };
   }
-  if(cup.phase==="semis"){
-    const legIdx = cup.semis.legs.findIndex(l=>!l.resolved && (l.home.id===cup.playerClubId||l.away.id===cup.playerClubId));
-    const leg = cup.semis.legs[legIdx];
-    const newLegs = cup.semis.legs.map((l,i)=> i===legIdx ? { ...l, resolved:true, homeGoals, awayGoals } : l);
-    // Resolve automaticamente a outra semifinal (que não envolve o jogador) inteira, ida e volta, se ainda não resolvida.
-    const otherTie = leg.tie==="semi1" ? "semi2" : "semi1";
-    const finalLegs = newLegs.map(l=>{
-      if(l.tie===otherTie && !l.resolved){
+  if(cup.phase==="knockout"){
+    const tieIdx = cup.knockoutTies.findIndex(t=>t.home.id===cup.playerClubId||t.away.id===cup.playerClubId);
+    const tie = cup.knockoutTies[tieIdx];
+    const legIdx = tie.legs.findIndex(l=>!l.resolved);
+    const newLegs = tie.legs.map((l,i)=> i===legIdx ? { ...l, resolved:true, homeGoals, awayGoals } : l);
+    const newTies = cup.knockoutTies.map((t,i)=> i===tieIdx ? { ...t, legs:newLegs } : t);
+    // Resolve automaticamente as outras chaves da rodada (sem o jogador), ida e volta completas.
+    const finalTies = newTies.map((t,i)=>{
+      if(i===tieIdx) return t;
+      if(t.legs.every(l=>l.resolved)) return t;
+      const legs = t.legs.map(l=>{
         const res = quickSimResult(l.home, l.away);
         return { ...l, resolved:true, homeGoals:res.homeGoals, awayGoals:res.awayGoals };
-      }
-      return l;
-    });
-    const allResolved = finalLegs.every(l=>l.resolved);
-    if(!allResolved){
-      return { ...cup, semis:{ legs:finalLegs } };
-    }
-    // Placar agregado por confronto (soma dos dois jogos, considerando o mando de cada perna).
-    function aggregateWinner(tieName, teamX, teamY){
-      const legs = finalLegs.filter(l=>l.tie===tieName);
-      let goalsX=0, goalsY=0;
-      legs.forEach(l=>{
-        if(l.home.id===teamX.id){ goalsX+=l.homeGoals; goalsY+=l.awayGoals; }
-        else { goalsX+=l.awayGoals; goalsY+=l.homeGoals; }
       });
-      if(goalsX===goalsY) return Math.random()<0.5?teamX:teamY; // empate no agregado, decide por pênaltis "de fora de campo"
-      return goalsX>goalsY ? teamX : teamY;
+      return { ...t, legs };
+    });
+    const playerTieAllResolved = finalTies[tieIdx].legs.every(l=>l.resolved);
+    if(!playerTieAllResolved){
+      return { ...cup, knockoutTies:finalTies };
     }
-    const semi1Teams = [finalLegs.find(l=>l.tie==="semi1").home, finalLegs.find(l=>l.tie==="semi1").away];
-    const semi2Teams = [finalLegs.find(l=>l.tie==="semi2").home, finalLegs.find(l=>l.tie==="semi2").away];
-    const finalist1 = aggregateWinner("semi1", semi1Teams[0], semi1Teams[1]);
-    const finalist2 = aggregateWinner("semi2", semi2Teams[0], semi2Teams[1]);
-    const playerAdvanced = finalist1.id===cup.playerClubId || finalist2.id===cup.playerClubId;
-    if(!playerAdvanced){
-      return { ...cup, semis:{ legs:finalLegs }, phase:"done", eliminated:true };
+    const winners = finalTies.map(t=>resolveKnockoutTieAggregate(t));
+    const playerAdvanced = winners.some(w=>w.id===cup.playerClubId);
+    const base = { ...cup, knockoutTies:finalTies };
+    if(!playerAdvanced) return { ...base, phase:"done", eliminated:true };
+    if(winners.length===2){
+      return { ...base, phase:"final", finalTie:{ home:winners[0], away:winners[1], resolved:false, winner:null } };
     }
-    return { ...cup, semis:{ legs:finalLegs }, phase:"final", finalTie:{ home:finalist1, away:finalist2, resolved:false, winner:null } };
+    return { ...base, phase:"knockout", knockoutTies:buildKnockoutTies(winners) };
   }
   if(cup.phase==="final"){
     const winner = playerWon ? playerClub : opponentClub;
@@ -961,7 +980,10 @@ function advanceContinentalCup(cup, playerWon, playerClub, opponentClub, homeGoa
   return cup;
 }
 function scheduleContinentalWeeks(cup, totalLeagueWeeks, offset){
-  const eventsCount = cup.groupARounds.length + 2 + 1; // rodadas de grupo + 2 pernas de semifinal + final
+  const groupStageWeeks = cup.groupRounds[0].length;
+  const qualifiersCount = cup.groups.length===1 ? 2 : cup.groups.length*2;
+  const knockoutRoundsCount = qualifiersCount>2 ? Math.round(Math.log2(qualifiersCount)) : 0;
+  const eventsCount = groupStageWeeks + knockoutRoundsCount*2 + 1; // grupos + (ida+volta por fase de mata-mata) + final
   const weeks = [];
   for(let i=1;i<=eventsCount;i++){
     let w = Math.round((totalLeagueWeeks*i)/(eventsCount+1)) + (offset||0);
@@ -972,11 +994,13 @@ function scheduleContinentalWeeks(cup, totalLeagueWeeks, offset){
   return { ...cup, scheduledWeeks:weeks };
 }
 function continentalRoundLabel(cup){
-  if(cup.phase==="groups") return `Fase de grupos — rodada ${cup.currentGroupRound+1}/${cup.groupARounds.length}`;
-  if(cup.phase==="semis"){
-    const playerLegs = cup.semis.legs.filter(l=>l.home.id===cup.playerClubId||l.away.id===cup.playerClubId);
-    const resolvedCount = playerLegs.filter(l=>l.resolved).length;
-    return `Semifinal — jogo de ${resolvedCount===0?"ida":"volta"}`;
+  if(cup.phase==="groups") return `Fase de grupos — rodada ${cup.currentGroupRound+1}/${cup.groupRounds[0].length}`;
+  if(cup.phase==="knockout"){
+    const roundName = cupRoundName(cup.knockoutTies.length*2);
+    const tie = cup.knockoutTies.find(t=>t.home.id===cup.playerClubId||t.away.id===cup.playerClubId);
+    if(!tie) return roundName;
+    const resolvedCount = tie.legs.filter(l=>l.resolved).length;
+    return `${roundName} — jogo de ${resolvedCount===0?"ida":"volta"}`;
   }
   if(cup.phase==="final") return "Final";
   return "";
@@ -1620,8 +1644,8 @@ function computeLeagueTopAssists(calendar, player, seasonAssistsSoFar){
 // e usa o placar de gols/assistências DE VERDADE que o jogador principal marcou nessa copa específica.
 function computeCupTopScorers(cup, player, statKey){
   if(!cup) return [];
-  const teams = cup.teams || [...(cup.groupA||[]), ...(cup.groupB||[])];
-  const roundsEstimate = cup.phase ? (cup.phase==="groups"?cup.currentGroupRound+1:cup.phase==="semis"?4:5) : (cup.currentRoundIdx+1);
+  const teams = cup.teams || (cup.groups ? cup.groups.flat() : []);
+  const roundsEstimate = cup.phase ? (cup.phase==="groups"?cup.currentGroupRound+1:cup.phase==="knockout"?(cup.groupRounds?cup.groupRounds[0].length:3)+1:5) : (cup.currentRoundIdx+1);
   const rows = [];
   const playerTeamId = cup.playerClubId || player.club.id;
   const playerTeam = teams.find(t=>t.id===playerTeamId);
@@ -2877,33 +2901,29 @@ function CupDetailsPanel({ cup, player, kind }){
       )}
       {tab==="classificacao" && kind==="continental" && (
         <div className="space-y-2">
-          <div>
-            <p className="text-[10px] text-steel-400 uppercase mb-1">Grupo A</p>
-            {continentalGroupStandingsSorted(cup.groupAStandings, cup.groupA).map((r,i)=>(
-              <div key={i} className={`flex items-center justify-between ${r.club.id===cup.playerClubId?"text-touchline font-semibold":"text-steel-300"}`}>
-                <span className="truncate">{i+1}. {r.club.name}</span>
-                <span className="stat-num shrink-0">{r.pts} pts</span>
-              </div>
-            ))}
-          </div>
-          {cup.hasGroupB && (
-            <div>
-              <p className="text-[10px] text-steel-400 uppercase mb-1">Grupo B</p>
-              {continentalGroupStandingsSorted(cup.groupBStandings, cup.groupB).map((r,i)=>(
-                <div key={i} className="flex items-center justify-between text-steel-300">
+          {cup.groups && cup.groups.map((g,gi)=>(
+            <div key={gi}>
+              <p className="text-[10px] text-steel-400 uppercase mb-1">Grupo {String.fromCharCode(65+gi)}</p>
+              {continentalGroupStandingsSorted(cup.groupStandings[gi], g).map((r,i)=>(
+                <div key={i} className={`flex items-center justify-between ${r.club.id===cup.playerClubId?"text-touchline font-semibold":"text-steel-300"}`}>
                   <span className="truncate">{i+1}. {r.club.name}</span>
                   <span className="stat-num shrink-0">{r.pts} pts</span>
                 </div>
               ))}
             </div>
-          )}
-          {cup.semis && (
+          ))}
+          {cup.knockoutTies && cup.knockoutTies.length>0 && (
             <div>
-              <p className="text-[10px] text-steel-400 uppercase mb-1">Semifinais</p>
-              {cup.semis.legs.map((l,i)=>(
-                <div key={i} className="flex items-center justify-between text-steel-300 mb-0.5">
-                  <span className="truncate">{l.home.name} x {l.away.name}</span>
-                  <span className="stat-num shrink-0">{l.resolved ? `${l.homeGoals}-${l.awayGoals}` : "—"}</span>
+              <p className="text-[10px] text-steel-400 uppercase mb-1">{cupRoundName(cup.knockoutTies.length*2)}</p>
+              {cup.knockoutTies.map((t,i)=>(
+                <div key={i} className="mb-1">
+                  <p className="text-steel-300 truncate">{t.home.name} x {t.away.name}</p>
+                  {t.legs.map((l,li)=>(
+                    <div key={li} className="flex items-center justify-between text-steel-400 pl-2">
+                      <span className="truncate">{l.home.name} x {l.away.name} ({li===0?"ida":"volta"})</span>
+                      <span className="stat-num shrink-0">{l.resolved ? `${l.homeGoals}-${l.awayGoals}` : "—"}</span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -3226,7 +3246,7 @@ function DashboardPage(){
         const wonNormally = cupTie.home.id===player.club.id ? res2.homeGoals>res2.awayGoals : res2.awayGoals>res2.homeGoals;
         const playerWon = wonNormally || (isDraw && Math.random()<0.5);
         updatedCup = advanceCup(activeCup, playerWon, player.club, opponentClub);
-      } else if(activeCup.phase==="groups" || activeCup.phase==="semis"){
+      } else if(activeCup.phase==="groups" || activeCup.phase==="knockout"){
         updatedContinentalCup = advanceContinentalCup(activeCup, false, player.club, opponentClub, res2.homeGoals, res2.awayGoals);
       } else {
         const isDraw = res2.homeGoals===res2.awayGoals;
@@ -3239,7 +3259,7 @@ function DashboardPage(){
       const playerNT = buildPlayerNationalTeamClub(player);
       const res3 = quickSimResult(worldCupTie.home, worldCupTie.away);
       const opponentNT = worldCupTie.home.id===career.worldCup.playerClubId ? worldCupTie.away : worldCupTie.home;
-      if(career.worldCup.phase==="groups" || career.worldCup.phase==="semis"){
+      if(career.worldCup.phase==="groups" || career.worldCup.phase==="knockout"){
         updatedWorldCup = advanceContinentalCup(career.worldCup, false, playerNT, opponentNT, res3.homeGoals, res3.awayGoals);
       } else {
         const isDraw = res3.homeGoals===res3.awayGoals;
@@ -4264,11 +4284,18 @@ function MatchPage(){
         const wonMatch = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
         const drewMatch = result.homeGoals===result.awayGoals;
         const matchVerb = wonMatch ? "Vitória" : drewMatch ? "Empate" : "Derrota";
-        if(updatedCup.phase==="semis"){
+        if(updatedCup.phase==="knockout"){
+          const roundName = cupRoundName(updatedCup.knockoutTies.length*2);
+          const isPlural = roundName!=="Semifinal";
           wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
-            headline:`Seleção avança nas semifinais da Copa do Mundo com ${player.firstName} em campo!`,
-            summary:`${matchVerb} contra a ${pendingMatch.opponentClub.name} confirma a vaga entre os quatro melhores do mundo.`, date:`Temporada ${career.currentSeason}`, impact:35, season:career.currentSeason };
-          updatedPlayer = addMilestone(updatedPlayer, `Semifinalista da Copa do Mundo!`, career.currentSeason, "seleção");
+            headline:`Seleção avança à${isPlural?"s":""} ${roundName.toLowerCase()} da Copa do Mundo com ${player.firstName} em campo!`,
+            summary:`${matchVerb} contra a ${pendingMatch.opponentClub.name} confirma a classificação para o mata-mata.`, date:`Temporada ${career.currentSeason}`, impact:30, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Classificado para ${isPlural?"as":"a"} ${roundName.toLowerCase()} da Copa do Mundo!`, career.currentSeason, "seleção");
+        } else if(updatedCup.phase==="final"){
+          wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"nacional",
+            headline:`HISTÓRICO! Seleção está na final da Copa do Mundo com ${player.firstName} em campo!`,
+            summary:`País inteiro para para o jogo mais importante em anos.`, date:`Temporada ${career.currentSeason}`, impact:50, season:career.currentSeason };
+          updatedPlayer = addMilestone(updatedPlayer, `Finalista da Copa do Mundo!`, career.currentSeason, "seleção");
         } else if(updatedCup.eliminated){
           wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
             headline:`Fora! Seleção é eliminada na fase de grupos da Copa do Mundo`,
@@ -4278,7 +4305,8 @@ function MatchPage(){
             headline:`${matchVerb} da seleção na fase de grupos da Copa do Mundo`,
             summary:`Resultado contra a ${pendingMatch.opponentClub.name} mantém viva a esperança de classificação.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?8:drewMatch?2:-6, season:career.currentSeason };
         }
-      } else if(cup.phase==="semis"){
+      } else if(cup.phase==="knockout"){
+        const roundNameBefore = cupRoundName(cup.knockoutTies.length*2);
         updatedCup = advanceContinentalCup(cup, false, buildPlayerNationalTeamClub(player), pendingMatch.opponentClub, result.homeGoals, result.awayGoals);
         updatedCup = { ...updatedCup, playerGoals:(cup.playerGoals||0)+result.playerGoals, playerAssists:(cup.playerAssists||0)+result.playerAssists };
         const wonMatch = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
@@ -4291,12 +4319,12 @@ function MatchPage(){
           updatedPlayer = addMilestone(updatedPlayer, `Finalista da Copa do Mundo!`, career.currentSeason, "seleção");
         } else if(updatedCup.eliminated){
           wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
-            headline:`Seleção cai na semifinal da Copa do Mundo`,
+            headline:`Seleção cai n${(roundNameBefore!=="Semifinal"?"as":"a")} ${roundNameBefore.toLowerCase()} da Copa do Mundo`,
             summary:`Sonho do tetra/penta acaba no placar agregado contra a ${pendingMatch.opponentClub.name}.`, date:`Temporada ${career.currentSeason}`, impact:-10, season:career.currentSeason };
         } else {
           wcNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
-            headline:`${matchVerb} da seleção na semifinal da Copa do Mundo`,
-            summary:`Primeiro jogo contra a ${pendingMatch.opponentClub.name}; decisão fica para o jogo de volta.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?7:drewMatch?2:-4, season:career.currentSeason };
+            headline:`${matchVerb} da seleção n${(roundNameBefore!=="Semifinal"?"as":"a")} ${roundNameBefore.toLowerCase()} da Copa do Mundo`,
+            summary:`Resultado contra a ${pendingMatch.opponentClub.name} define o clima para o jogo de volta.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?7:drewMatch?2:-4, season:career.currentSeason };
         }
       } else {
         const isDraw = result.homeGoals===result.awayGoals;
@@ -4415,7 +4443,8 @@ function MatchPage(){
             headline:`${matchVerb} do ${player.club.name} na fase de grupos da ${cup.name}`,
             summary:`Resultado contra o ${result.opponentClub.name} mantém viva a briga por vaga na próxima fase.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?6:drewMatch?1:-4, season:career.currentSeason };
         }
-      } else if(cup.phase==="semis"){
+      } else if(cup.phase==="knockout"){
+        const roundNameBefore = cupRoundName(cup.knockoutTies.length*2);
         updatedCup = advanceContinentalCup(cup, false, player.club, pendingMatch.opponentClub, result.homeGoals, result.awayGoals);
         updatedCup = { ...updatedCup, playerGoals:(cup.playerGoals||0)+result.playerGoals, playerAssists:(cup.playerAssists||0)+result.playerAssists };
         const wonMatch = pendingMatch.isHome ? result.homeGoals>result.awayGoals : result.awayGoals>result.homeGoals;
@@ -4428,12 +4457,12 @@ function MatchPage(){
           updatedPlayer = addMilestone(updatedPlayer, `Classificado para a final da ${cup.name}!`, career.currentSeason, "classificação");
         } else if(updatedCup.eliminated){
           cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"sensacionalista",
-            headline:`${player.club.name} cai nas semifinais da ${cup.name}`,
+            headline:`${player.club.name} cai n${(roundNameBefore!=="Semifinal"?"as":"a")} ${roundNameBefore.toLowerCase()} da ${cup.name}`,
             summary:`Eliminado no placar agregado contra o ${result.opponentClub.name}.`, date:`Temporada ${career.currentSeason}`, impact:-8, season:career.currentSeason };
         } else {
           cupNews = { id:nextNewsId(), outlet:pick(OUTLETS).name, outletType:"local",
-            headline:`${matchVerb} do ${player.club.name} na semifinal da ${cup.name}`,
-            summary:`Primeiro jogo contra o ${result.opponentClub.name}; decisão fica para o jogo de volta.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?5:drewMatch?1:-3, season:career.currentSeason };
+            headline:`${matchVerb} do ${player.club.name} n${(roundNameBefore!=="Semifinal"?"as":"a")} ${roundNameBefore.toLowerCase()} da ${cup.name}`,
+            summary:`Resultado contra o ${result.opponentClub.name} define o clima para o jogo de volta.`, date:`Temporada ${career.currentSeason}`, impact: wonMatch?5:drewMatch?1:-3, season:career.currentSeason };
         }
       } else {
         const isDraw = result.homeGoals===result.awayGoals;
@@ -4680,7 +4709,7 @@ function MatchPage(){
               <p className="text-sm text-steel-400 mb-1">{outcomes.filter(o=>o.goal).length} gol(s) seu(s) · {outcomes.filter(o=>o.assist).length} assistência(s) · {outcomes.filter(o=>o.save||o.defense).length} ação(ões) decisiva(s)</p>
               <p className="text-sm text-steel-400 mb-6">{outcomes.filter(o=>o.success).length} de {outcomes.length} decisões bem resolvidas em campo.</p>
               {outcomes.some(o=>o.card==="vermelho") && <p className="text-sm text-state-down mb-4">Você foi expulso e vai cumprir suspensão.</p>}
-              {pendingMatch.isCup && pendingMatch.isKnockout && homeGoals===awayGoals ? (
+              {(pendingMatch.isCup || pendingMatch.isWorldCup) && pendingMatch.isKnockout && homeGoals===awayGoals ? (
                 <button className="btn-primary" onClick={startShootout}>Decidir nos pênaltis</button>
               ) : (
                 <button className="btn-primary" onClick={goToPress}>Encerrar partida</button>
